@@ -1,0 +1,4 @@
+## IDF Component Manager manifest: pulls libcoap (CoAP + DTLS) from the component registry
+dependencies:
+  idf: ">=5.0"
+  espressif/coap: "*"

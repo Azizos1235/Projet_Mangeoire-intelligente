@@ -1,0 +1,26 @@
+# ---- secrets (never commit these) ----
+.env
+*.env
+
+# ---- Python (MI_mdule_AI, MI_cloud_server) ----
+__pycache__/
+*.pyc
+myenv/
+venv/
+.venv/
+
+# ---- ESP32 / ESP-IDF (MI_esp32) ----
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+
+# ---- generated data and models (MI_mdule_AI) ----
+feeding_data.csv
+appetite_models.joblib
+
+# ---- editor / system ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

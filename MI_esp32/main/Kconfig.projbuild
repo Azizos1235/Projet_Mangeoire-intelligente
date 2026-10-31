@@ -1,0 +1,56 @@
+menu "Feeder Configuration"
+
+    config FEEDER_WIFI_SSID
+        string "WiFi SSID"
+        default "YOUR_WIFI_SSID"
+
+    config FEEDER_WIFI_PASSWORD
+        string "WiFi password"
+        default "YOUR_WIFI_PASSWORD"
+
+    config FEEDER_SERVER_IP
+        string "Proxy IP address (the Raspberry Pi)"
+        default "192.168.100.7"
+
+    config FEEDER_SERVER_PORT
+        int "DTLS port of the proxy"
+        range 1 65535
+        default 5684
+
+    config FEEDER_PSK_IDENTITY
+        string "PSK identity"
+        default "esp32-01"
+        help
+            Must be identical to pskIdentity in the Go proxy (main.go).
+
+    config FEEDER_PSK_KEY
+        string "PSK key"
+        default "0123456789abcdef"
+        help
+            Must be identical to pskKey in the Go proxy (main.go).
+
+    config FEEDER_URI_PATH
+        string "CoAP resource path (single segment, no slash)"
+        default "feeder"
+        help
+            Must match the URL of the "coap in" node in Node-RED.
+
+    config FEEDER_USE_REAL_DATE
+        bool "Start from today's real date (needs internet)"
+        default y
+        help
+            The ESP32 reads the real date from the internet (SNTP) at boot and
+            starts sending from it. Each round then adds one day.
+
+    config FEEDER_START_DATE
+        string "Fallback first date (YYYY-MM-DD)"
+        default "2026-01-01"
+        help
+            Used when the real date is disabled or the internet is not reachable.
+
+    config FEEDER_SEND_INTERVAL_MS
+        int "Send interval (ms)"
+        range 1000 600000
+        default 10000
+
+endmenu
