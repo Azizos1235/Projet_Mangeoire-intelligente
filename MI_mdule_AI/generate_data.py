@@ -1,66 +1,45 @@
 """
 Generate a SYNTHETIC feeding_data.csv (one row per cow per day) for MEAT cattle.
-THREE appetite classes: normal, decreased, increased  (the "irregular" class was removed).
-
-Usage:  python generate_feeding_data.py [n_cows] [n_days] [output.csv]
+THREE appetite classes: normal, decreased, increased.
+Edit the settings below, then run:  python generate_feeding_data.py
 
 Columns
-  cow_id, date
-  age_months             age of the cow on that day
-  food_consumed_g        grams eaten that day
-  feed_offered_g         grams made available that day
-  visits                 visits to the feeder
-  eating_minutes         total minutes eating
-  avg_meal_duration_min  eating_minutes / (visits where she actually ate)
-  no_food_visits         visits where she ate nothing (counted inside `visits`)
-  first_visit_hour       hour of the first visit (5.8 = 05:48)
-  last_visit_hour        hour of the last visit
-  appetite_label         0 = normal, 1 = decreased, 2 = increased
-  appetite_class         the same label as text
+  cow_id, date, age_months, food_consumed_g, feed_offered_g, visits, eating_minutes,
+  avg_meal_duration_min, no_food_visits, first_visit_hour, last_visit_hour,
+  appetite_label (0 normal, 1 decreased, 2 increased), appetite_class (same, as text)
 
-The three classes
-  0 normal     intake and feeding pattern within her usual range
-  1 decreased  eats clearly less than expected (episodes of 1-6 days), fewer
-               visits, shorter eating time, later first / earlier last visit
-  2 increased  eats clearly more than usual (episodes of 1-4 days), a bit more
-               visiting and eating time. Limited by what was offered
+CHANGES (latest): "increased" episodes now span +20% .. +60% (was 20-32%), limited by what
+  was offered (offered_ratio 1.25-1.80). Before, the model never saw a strong increase
+  (x1.5, visits and eating time far up) and called it normal: random forests cannot extrapolate.
 
-What makes the data realistic (and not solvable by one simple rule)
-  - ~25% of animals are young and still growing: their normal intake rises
-    steadily with age (the model sees this through age_months). The others are
-    mature animals with stable intake
-  - every animal has her own baseline and slow drift
-  - normal days that LOOK unusual, all labelled 0:
-      * farm-wide heat days (everybody eats less)
-      * farm-wide cold days (everybody eats a bit more)
-      * farm-wide underfed days (little feed delivered)
-      * individual small dips and small rises
-  - a day is labelled abnormal ONLY if the change is clearly visible (see
-    MIN_EFFECT); weak build-up days of an episode stay "normal"
-  - an animal can never eat more than what was offered
-  - ~1.5% of labels are replaced by a wrong class, like human labelling errors
+CHANGES vs the previous generator (to make "increased" easier to learn):
+  - LABEL_NOISE 1.5% -> 0.5%
+  - MIN_EFFECT for "increased" 12% -> 18%, and increased episodes peak at 20-32%
+    (every increased episode now contains clearly visible, labelled days)
+  - daily food noise 7% -> 5%
+  - normal rises (cold days, small individual rises) 5-10% -> 3-6%
+  - fewer gradual episodes (30% instead of 50%)
+  - offered feed 35-55% above normal intake (was 15-30%): before, the "cannot eat more
+    than offered" cap clipped many real increases down to ~12%, so they looked normal
 
-This is for building and testing the pipeline only. A model trained on it
-tells you nothing reliable about real animals: replace it with real farm data.
+This is for building and testing the pipeline only. A model trained on it tells you
+nothing reliable about real animals: replace it with real farm data.
 """
 
-import sys
 import numpy as np
 import pandas as pd
 
-N_COWS = int(sys.argv[1]) if len(sys.argv) > 1 else 60
-N_DAYS = int(sys.argv[2]) if len(sys.argv) > 2 else 180
-OUT = sys.argv[3] if len(sys.argv) > 3 else "feeding_data.csv"
+N_COWS = 1000
+N_DAYS = 493
+OUT = "feeding_data.csv"
 SEED = 42
 GROWING_SHARE = 0.25
-LABEL_NOISE = 0.015
+LABEL_NOISE = 0.005
 
 # A day only gets an abnormal label when the change is clearly visible.
-# The build-up days of a gradual episode that are still too weak stay "normal",
-# like a vet would call them.
 #   decreased: at least 15% less food than usual
-#   increased: at least 12% more food than usual
-MIN_EFFECT = {1: 0.15, 2: 0.12}
+#   increased: at least 18% more food than usual
+MIN_EFFECT = {1: 0.15, 2: 0.18}
 
 CLASS_NAMES = {0: "normal", 1: "decreased", 2: "increased"}
 N_CLASSES = len(CLASS_NAMES)
@@ -87,7 +66,7 @@ for j in rng.choice(N_DAYS, size=max(N_DAYS // 30, 1), replace=False):
 farm_cold = np.zeros(N_DAYS)
 for j in rng.choice(N_DAYS, size=max(N_DAYS // 40, 1), replace=False):
     if farm_heat[j] == 0:
-        farm_cold[j] = rng.uniform(0.05, 0.10)       # everybody eats 5-10% more
+        farm_cold[j] = rng.uniform(0.03, 0.06)       # everybody eats 3-6% more
 farm_offer = np.ones(N_DAYS)
 for j in rng.choice(N_DAYS, size=max(N_DAYS // 45, 1), replace=False):
     farm_offer[j] = rng.uniform(0.72, 0.88)          # little feed delivered
@@ -107,7 +86,7 @@ for c in range(1, N_COWS + 1):
     base_visits = rng.normal(11, 1.5)
     base_minutes = rng.normal(90, 10)
     base_nofood = rng.uniform(0.8, 1.8)
-    offered_ratio = rng.uniform(1.15, 1.30)      # farm offers ~15-30% extra
+    offered_ratio = rng.uniform(1.25, 1.80)      # farm offers ~25-80% extra
     base_first = rng.normal(5.5, 0.8)
     base_last = rng.normal(21.5, 0.9)
 
@@ -126,8 +105,11 @@ for c in range(1, N_COWS + 1):
             if cls == 1:
                 length, peak = int(rng.integers(1, 7)), rng.uniform(0.30, 1.0)
             else:
-                length, peak = int(rng.integers(1, 5)), rng.uniform(0.15, 0.35)
-            gradual = rng.random() < 0.5
+                length, peak = int(rng.integers(1, 5)), rng.uniform(0.20, 0.60)
+                # an animal cannot eat more than was offered: keep the peak feasible,
+                # so every labelled increase is really visible in the food column
+                peak = min(peak, offered_ratio * 0.94 - 1.0)
+            gradual = rng.random() < 0.3
             for i in range(length):
                 if day + i >= N_DAYS:
                     break
@@ -162,7 +144,7 @@ for c in range(1, N_COWS + 1):
     for _ in range(max(int(N_DAYS * 0.015), 1)):
         j = int(rng.integers(0, N_DAYS))
         if label[j] == 0 and dip[j] == 0:
-            rise[j] = rng.uniform(0.05, 0.10)
+            rise[j] = rng.uniform(0.03, 0.06)
 
     for t in range(N_DAYS):
         age_t = age0 + t / 30.4
@@ -182,7 +164,7 @@ for c in range(1, N_COWS + 1):
 
         food = (base_food * level * (1 + drift[t]) * (1 - 0.65 * d_sev)
                 * (1 - down) * (1 + i_sev) * (1 + up))
-        food *= rng.normal(1, 0.07)
+        food *= rng.normal(1, 0.05)
         food = min(food, offered * rng.uniform(0.95, 0.99))     # cannot eat more than offered
 
         v_mult = ((0.7 + 0.3 * level) * (1 + drift[t]) * (1 - 0.55 * d_sev)
@@ -218,7 +200,7 @@ for c in range(1, N_COWS + 1):
 
 df = pd.DataFrame(rows)
 
-# Label noise: replace ~1.5% of labels with a different, wrong class
+# Label noise: replace a small share of labels with a different, wrong class
 flip = rng.random(len(df)) < LABEL_NOISE
 shift = rng.integers(1, N_CLASSES, size=int(flip.sum()))
 df.loc[flip, "appetite_label"] = (df.loc[flip, "appetite_label"] + shift) % N_CLASSES
