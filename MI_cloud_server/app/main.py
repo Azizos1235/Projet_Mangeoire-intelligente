@@ -2,7 +2,9 @@ import asyncio, contextlib, json, logging
 from contextlib import asynccontextmanager
 
 import aio_pika
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pymongo import AsyncMongoClient, ReplaceOne
 
@@ -22,6 +24,52 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+# --------------------------------------------------------------------------
+# WebSocket hub: keeps the connected Flutter clients and pushes live updates
+# --------------------------------------------------------------------------
+class Hub:
+    def __init__(self):
+        self.clients: set[WebSocket] = set()
+
+    async def broadcast(self, msg: dict):
+        try:
+            text = json.dumps(jsonable_encoder(msg))
+        except Exception:
+            log.exception("Could not encode broadcast message")
+            return
+        dead = []
+        for ws in list(self.clients):
+            try:
+                await ws.send_text(text)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.clients.discard(ws)
+
+
+hub = Hub()
+
+
+async def reply(ws: WebSocket, msg: dict):
+    await ws.send_text(json.dumps(jsonable_encoder(msg)))
+
+
+# --------------------------------------------------------------------------
+# Data helpers
+# --------------------------------------------------------------------------
+async def latest(col, cow_id: str):
+    return await col.find_one({"cow_id": cow_id}, {"_id": 0}, sort=[("date", -1)])
+
+
+async def predict(record: dict) -> dict:
+    """Plug your AI model here. Return {...record, "model": {...}} (the shape
+    AiResult.fromResponse expects in the Flutter app)."""
+    raise NotImplementedError("No prediction model is wired into this server yet")
+
+
+# --------------------------------------------------------------------------
+# RabbitMQ -> MongoDB ingestion
+# --------------------------------------------------------------------------
 def parse_items(body: bytes) -> list[dict]:
     """Accept one cow object, a list of cow objects, or double-encoded JSON."""
     payload = json.loads(body)
@@ -51,10 +99,17 @@ async def handle(message: aio_pika.abc.AbstractIncomingMessage, col):
     except (ValueError, TypeError):  # JSONDecodeError and UnicodeDecodeError are ValueErrors
         log.warning("Bad message dropped: %r", message.body[:200])
         await message.reject(requeue=False)
+        return
     except Exception:
         log.exception("DB error, requeueing")
         await asyncio.sleep(2)
         await message.nack(requeue=True)
+        return
+
+    # push the new records to every connected app (never affects the ack above)
+    for d in items:
+        data = {k: v for k, v in d.items() if k != "_id"}
+        await hub.broadcast({"type": "update", "cow_id": d["cow_id"], "data": data})
 
 
 async def ensure_index(col):
@@ -103,6 +158,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+# --------------------------------------------------------------------------
+# HTTP endpoints
+# --------------------------------------------------------------------------
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -114,3 +172,85 @@ async def events(cow_id: str, request: Request, limit: int = Query(30, ge=1, le=
         {"cow_id": cow_id.strip().upper()}, {"_id": 0}
     ).sort("date", -1).limit(limit)
     return await cur.to_list(length=limit)
+
+
+# These three are what HttpCowService calls (they were missing -> HTTP 404)
+@app.get("/cows")
+async def cows(request: Request):
+    return {"cows": sorted(await request.app.state.col.distinct("cow_id"))}
+
+
+@app.get("/latest/{cow_id}")
+async def latest_http(cow_id: str, request: Request):
+    doc = await latest(request.app.state.col, cow_id.strip().upper())
+    if doc is None:
+        return JSONResponse({"error": f"No data for cow {cow_id}"}, status_code=404)
+    return doc
+
+
+@app.get("/predict/{cow_id}")
+async def predict_http(cow_id: str, request: Request):
+    doc = await latest(request.app.state.col, cow_id.strip().upper())
+    if doc is None:
+        return JSONResponse({"error": f"No data for cow {cow_id}"}, status_code=404)
+    try:
+        return await predict(doc)
+    except NotImplementedError as e:
+        return JSONResponse({"error": str(e)}, status_code=501)
+
+
+# --------------------------------------------------------------------------
+# WebSocket endpoint used by the Flutter CowService
+# --------------------------------------------------------------------------
+async def on_client_message(ws: WebSocket, col, msg: dict):
+    kind = msg.get("type")
+    echo_id = msg.get("cow_id")  # sent back untouched so the app can match it
+    cow_id = str(echo_id).strip().upper() if echo_id is not None else None
+    try:
+        if kind == "list":
+            ids = sorted(await col.distinct("cow_id"))
+            await reply(ws, {"type": "cows", "ids": ids})
+
+        elif kind == "get" and cow_id:
+            doc = await latest(col, cow_id)
+            if doc is None:
+                await reply(ws, {"type": "error", "cow_id": echo_id, "where": "data",
+                                 "message": f"No data for cow {cow_id}"})
+            else:
+                await reply(ws, {"type": "cow", "cow_id": echo_id, "data": doc})
+
+        elif kind == "ask" and cow_id:
+            doc = await latest(col, cow_id)
+            if doc is None:
+                raise LookupError(f"No data for cow {cow_id}")
+            result = await predict(doc)
+            await reply(ws, {"type": "ai", "cow_id": echo_id, "result": result})
+
+    except Exception as e:
+        if not isinstance(e, (NotImplementedError, LookupError)):
+            log.exception("WebSocket request failed: %r", msg)
+        await reply(ws, {"type": "error", "cow_id": echo_id,
+                         "where": "ai" if kind == "ask" else "data",
+                         "message": str(e)})
+
+
+@app.websocket("/ws/cows")
+async def ws_cows(ws: WebSocket):
+    await ws.accept()
+    hub.clients.add(ws)
+    col = ws.app.state.col
+    try:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(msg, dict):
+                await on_client_message(ws, col, msg)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        log.exception("WebSocket crashed")
+    finally:
+        hub.clients.discard(ws)
