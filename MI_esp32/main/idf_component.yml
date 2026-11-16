@@ -1,4 +1,5 @@
 ## IDF Component Manager manifest: pulls libcoap (CoAP + DTLS) from the component registry
 dependencies:
-  idf: ">=5.0"
-  espressif/coap: "*"
+  idf: '>=5.0'
+  espressif/coap: '*'
+  abobija/rc522: ^3.0.0

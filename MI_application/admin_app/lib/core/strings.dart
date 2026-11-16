@@ -1,0 +1,186 @@
+abstract final class AppStrings {
+  static const serverWakingUp = 'Server is waking up, please wait';
+  static const networkError =
+      'Unable to connect to the server. Check your connection and try again.';
+  static const requestFailed = 'The request could not be completed.';
+  static const invalidResponse = 'The server returned an invalid response.';
+  static const loginTitle = 'Smart Élevage';
+  static const emailLabel = 'Email';
+  static const passwordLabel = 'Password';
+  static const emailRequired = 'Enter your email.';
+  static const passwordRequired = 'Enter your password.';
+  static const signIn = 'Sign in';
+  static const signingIn = 'Signing in...';
+  static const showPassword = 'Show password';
+  static const hidePassword = 'Hide password';
+  static const requestAccess = 'Request access';
+  static const requestAccessDescription =
+      'Submit your information and the administrator will contact you.';
+  static const requestNameLabel = 'Name';
+  static const requestNameRequired = 'Enter your name.';
+  static const requestEmailRequired = 'Enter your email.';
+  static const invalidEmail = 'Enter a valid email address.';
+  static const requestPhoneLabel = 'Phone (optional)';
+  static const requestMessageLabel = 'Message (optional)';
+  static const sendRequest = 'Send request';
+  static const requestSending = 'Sending...';
+  static const requestSentConfirmation =
+      'Request sent. The administrator will contact you.';
+  static const backToLogin = 'Back to login';
+  static const requestAlreadyExists =
+      'A request or an account already exists for this email';
+  static const requestValidationFailed =
+      'Please check the information and try again.';
+  static const invalidEmailOrPassword = 'Invalid email or password';
+  static const tooManyAttempts = 'Too many attempts, try again in a minute';
+  static const sessionStorageError =
+      'Unable to securely save your session. Please try again.';
+  static const sessionExpired = 'Session expired, please sign in again';
+  static const passwordChangeRequired =
+      'You must change your password before continuing.';
+  static const subscriptionExpired = 'Your subscription has expired.';
+  static const logout = 'Log out';
+  static const retry = 'Try again';
+  static const startupError =
+      'Unable to load your session. Check your connection and try again.';
+  static const logoutError = 'Unable to log out. Please try again.';
+  static const currentPasswordRequired = 'Enter your current password.';
+  static const newPasswordRequired = 'Enter a new password.';
+  static const passwordTooShort = 'Password must be at least 8 characters.';
+  static const passwordConfirmationRequired = 'Confirm your new password.';
+  static const currentPasswordLabel = 'Current password';
+  static const newPasswordLabel = 'New password';
+  static const passwordConfirmationLabel = 'Confirm new password';
+  static const passwordConfirmationMismatch = 'The passwords do not match.';
+  static const changePassword = 'Change password';
+  static const renewalExpiryLabel = 'Subscription expires';
+  static const subscriptionStatusLabel = 'Status';
+  static const daysLeftLabel = 'Days remaining';
+  static const renewalMessageLabel = 'Message (optional)';
+  static const requestRenewal = 'Request renewal';
+  static const renewalPending = 'A renewal request is already pending';
+  static const renewalRequested = 'Renewal request submitted.';
+  static const subscriptionLoadError = 'Unable to load subscription details.';
+  static const checkAgain = 'Check again';
+  static const expirationUnavailable = 'Expiration date unavailable.';
+  static const loading = 'Loading...';
+  static const alertsTitle = 'Alerts';
+  static const alertMessageLabel = 'Message';
+  static const alertMessageRequired = 'Enter a message.';
+  static const alertSeverityLabel = 'Severity';
+  static const alertSeverityInfo = 'Info';
+  static const alertSeverityWarning = 'Warning';
+  static const alertSeverityCritical = 'Critical';
+  static const alertAppetiteLow = 'Low';
+  static const alertAppetiteNormal = 'Normal';
+  static const alertAppetiteHigh = 'High';
+  static const alertActionLabel = 'Action';
+  static const alertActionNone = 'None';
+  static const alertActionSell = 'Sell';
+  static const alertActionVet = 'Vet';
+  static const alertActionButcher = 'Butcher';
+  static const alertSend = 'Send alert';
+  static const alertSent = 'Alert sent to all éleveurs.';
+  static const sending = 'Sending...';
+  static const done = 'Done';
+  static const alertCowLabel = 'Cow';
+  static const alertFilterAll = 'All';
+  static const alertFilterUnread = 'Unread';
+  static const alertFilterRead = 'Read';
+  static const alertStatusUnread = 'Unread';
+  static const alertStatusRead = 'Read';
+  static const alertTypeLabel = 'Type';
+  static const alertAppetiteClassLabel = 'Appetite class';
+  static const alertAppetitePercentagesLabel = 'Appetite percentages';
+  static const alertCreatedAtLabel = 'Created';
+  static const alertReadAtLabel = 'Read';
+  static const alertEmpty = 'No alerts.';
+  static const alertLoadError = 'Unable to load alerts.';
+  static const cowsTitle = 'Cows';
+  static const addCow = 'Add cow';
+  static const editCow = 'Edit cow';
+  static const deleteCow = 'Delete cow';
+  static const deleteCowConfirmation =
+      'Delete this cow profile? This action cannot be undone.';
+  static const cowIdLabel = 'Cow ID';
+  static const cowIdRequired = 'Enter a cow ID.';
+  static const cowBirthDateLabel = 'Birth date';
+  static const cowBirthDateRequired = 'Select a birth date.';
+  static const cowFutureBirthDate = 'Birth date cannot be in the future.';
+  static const cowWeightLabel = 'Weight (kg)';
+  static const cowWeightInvalid = 'Enter a valid weight greater than 0.';
+  static const cowWeightRange = 'Weight must be no more than 1500 kg.';
+  static const cowTypeLabel = 'Type';
+  static const cowTypeDairy = 'Dairy';
+  static const cowTypeBeef = 'Beef';
+  static const cowTypeDual = 'Dual purpose';
+  static const cowBreedLabel = 'Breed';
+  static const cowNfcLabel = 'NFC UID (optional)';
+  static const cowNfcInvalid =
+      'Enter 8 to 32 hexadecimal characters (separators are optional).';
+  static const cowClearNfc = 'Clear NFC UID';
+  static const cowSave = 'Save cow';
+  static const cowSaving = 'Saving...';
+  static const cowConflict =
+      'Cow ID or NFC tag already exists. Check the values and try again.';
+  static const cowLoadError = 'Unable to load cows.';
+  static const cowDetailLoadError = 'Unable to load this cow.';
+  static const cowDeleteError = 'Unable to delete this cow.';
+  static const cowDeleteFailed = 'Cow could not be deleted.';
+  static const cowEmpty = 'No cows yet.';
+  static const cowNoResults = 'No cows match your search.';
+  static const cowSearchHint = 'Search by cow ID, breed, or type';
+  static const cowCreateSuccess = 'Cow profile created.';
+  static const cowUpdateSuccess = 'Cow profile updated.';
+  static const cowTypeFilterAll = 'All types';
+  static const appetiteLow = 'Low';
+  static const appetiteNormal = 'Normal';
+  static const appetiteHigh = 'High';
+  static const appetiteDataUnavailable = 'Appetite data unavailable.';
+  static const appetiteSummaryTitle = 'Herd appetite';
+  static const trendIncreasing = 'Increasing';
+  static const trendStable = 'Stable';
+  static const trendDecreasing = 'Decreasing';
+  static const appetiteVerdictTitle = 'AI appetite verdict';
+  static const appetiteConfidenceTitle = 'Model confidence';
+  static const appetiteTrendTitle = '14-day appetite trend';
+  static const appetiteAdviceIncreasing =
+      'Appetite is increasing. Continue monitoring daily intake.';
+  static const appetiteAdviceStable =
+      'Appetite is stable. Continue the regular feeding routine.';
+  static const appetiteAdviceDecreasing =
+      'Appetite is decreasing. Check the cow and consider contacting a vet.';
+  static const pickDay = 'Search by day';
+  static const daySearchDataError = 'Unable to read this day data.';
+  static const daySearchNoData = 'No data is available for this day.';
+  static const cowAgeLabel = 'Age';
+  static const liveBadge = 'LIVE';
+  static const cowLatestReadingTitle = 'Latest realtime reading';
+  static const foodConsumedLabel = 'Food consumed';
+  static const feedOfferedLabel = 'Feed offered';
+  static const eatingTimeLabel = 'Eating time';
+  static const visitsLabel = 'Visits';
+  static const noFoodVisitsLabel = 'Visits without food';
+  static const averageMealLabel = 'Average meal';
+  static const firstVisitLabel = 'First visit';
+  static const lastVisitLabel = 'Last visit';
+  static const liveUpdatesUnavailable =
+      'Live updates are temporarily unavailable.';
+  static const cowsToWatchTitle = 'Cows to watch';
+  static const noCowsToWatch = 'No low-appetite cows in the latest data.';
+  static const dashboardAlerts = 'Unread alerts';
+  static const dashboardEleveurs = 'Éleveurs';
+  static const dashboardCowCount = 'Cows';
+  static const profileTitle = 'Cow profile';
+  static const cowHistoryTitle = 'Daily summaries';
+  static const cowLatestTitle = 'Latest data';
+  static const noLatestCowData = 'No latest daily data.';
+  static const cowRealtimeTitle = 'Recent readings';
+  static const cowDispatchTitle = 'Dispatch history';
+  static const cowPredictionTitle = 'Prediction';
+  static const predictionUnavailable = 'Prediction unavailable.';
+  static const emptyCowHistory = 'No daily summaries.';
+  static const emptyCowRealtime = 'No realtime readings.';
+  static const emptyCowDispatch = 'No dispatch records.';
+  static const cowCreateError = 'Unable to save this cow.';
+}
