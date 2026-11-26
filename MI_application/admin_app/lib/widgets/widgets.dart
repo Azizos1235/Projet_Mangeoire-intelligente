@@ -9,19 +9,30 @@ class AppCard extends StatelessWidget {
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
   final Color? color;
-  const AppCard({super.key, required this.child, this.onTap, this.padding = const EdgeInsets.all(16), this.color});
+  const AppCard(
+      {super.key,
+      required this.child,
+      this.onTap,
+      this.padding = const EdgeInsets.all(AppTheme.cardPadding),
+      this.color});
 
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
           color: color ?? Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.line),
+          borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+          boxShadow: const [
+            BoxShadow(
+              color: AppTheme.shadow,
+              blurRadius: 14,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(AppTheme.cardRadius),
             onTap: onTap,
             child: Padding(padding: padding, child: child),
           ),
@@ -33,15 +44,24 @@ class Pill extends StatelessWidget {
   final String text;
   final Color color;
   final IconData? icon;
-  const Pill(this.text, this.color, {super.key, this.icon});
+  final Color? backgroundColor;
+  const Pill(this.text, this.color,
+      {super.key, this.icon, this.backgroundColor});
 
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(color: color.withAlpha(30), borderRadius: BorderRadius.circular(20)),
+        decoration: BoxDecoration(
+            color: backgroundColor ?? color.withAlpha(30),
+            borderRadius: BorderRadius.circular(AppTheme.pillRadius)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (icon != null) ...[Icon(icon, size: 14, color: color), const SizedBox(width: 4)],
-          Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4)
+          ],
+          Text(text,
+              style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w700, color: color)),
         ]),
       );
 }
@@ -53,11 +73,19 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(2, 24, 2, 10),
+        padding: const EdgeInsets.fromLTRB(
+          2,
+          AppTheme.sectionSpacing,
+          2,
+          10,
+        ),
         child: Row(children: [
           Expanded(
               child: Text(text,
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.textDark))),
+                  style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textDark))),
           if (trailing != null) trailing!,
         ]),
       );
@@ -73,18 +101,25 @@ class DataSheet extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         child: Column(children: [
           for (var i = 0; i < rows.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: AppTheme.line),
+            if (i > 0) const Divider(height: 1, color: AppTheme.border),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 13),
               child: Row(children: [
                 Icon(rows[i].$1, size: 18, color: AppTheme.textGrey),
                 const SizedBox(width: 10),
-                Expanded(flex: 5, child: Text(rows[i].$2, style: const TextStyle(fontSize: 14, color: AppTheme.textGrey))),
+                Expanded(
+                    flex: 5,
+                    child: Text(rows[i].$2,
+                        style: const TextStyle(
+                            fontSize: 14, color: AppTheme.textGrey))),
                 Expanded(
                     flex: 6,
                     child: Text(rows[i].$3,
                         textAlign: TextAlign.end,
-                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: AppTheme.textDark))),
+                        style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textDark))),
               ]),
             ),
           ],
@@ -96,39 +131,75 @@ class KpiTile extends StatelessWidget {
   final IconData icon;
   final String value, label;
   final Color color;
-  const KpiTile(this.icon, this.value, this.label, {super.key, this.color = AppTheme.primary});
+  final VoidCallback? onTap;
+  final double? height;
+  const KpiTile(
+    this.icon,
+    this.value,
+    this.label, {
+    super.key,
+    this.color = AppTheme.primary,
+    this.onTap,
+    this.height,
+  });
 
   @override
-  Widget build(BuildContext context) => AppCard(
-        padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 22, color: color),
-          const SizedBox(height: 10),
-          Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppTheme.textDark, height: 1)),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-        ]),
-      );
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final tile = AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(AppTheme.space12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(height: AppTheme.space8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.titleLarge?.copyWith(
+              color: AppTheme.textDark,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.labelMedium?.copyWith(color: AppTheme.textGrey),
+          ),
+        ],
+      ),
+    );
+    return height == null ? tile : SizedBox(height: height, child: tile);
+  }
 }
 
 class CowAvatar extends StatelessWidget {
   final Cow cow;
-  const CowAvatar(this.cow, {super.key});
+  final Color? ring;
+  const CowAvatar(this.cow, {super.key, this.ring});
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: 46,
-        height: 46,
-        decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppTheme.primarySoft,
-            border: Border.all(color: AppTheme.primary, width: 2)),
-        child: Icon(
-          cow.type == CowType.beef ? Icons.pets_rounded : Icons.agriculture,
-          color: AppTheme.primary,
-          size: 22,
-        ),
-      );
+  Widget build(BuildContext context) {
+    final color = ring ?? AppTheme.primary;
+    return Container(
+      width: 54,
+      height: 54,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color.withValues(alpha: 0.12),
+        border: Border.all(color: color, width: 3),
+      ),
+      child: Semantics(
+        label: '${cow.id} · ${cow.type.label}',
+        child: const Text('🐄', style: TextStyle(fontSize: 27)),
+      ),
+    );
+  }
 }
 
 class PersonAvatar extends StatelessWidget {
@@ -142,33 +213,64 @@ class PersonAvatar extends StatelessWidget {
         width: size,
         height: size,
         alignment: Alignment.center,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: dim ? AppTheme.line : AppTheme.primarySoft),
+        decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: dim ? AppTheme.border : AppTheme.primarySoft),
         child: Text(name.isEmpty ? '?' : name[0].toUpperCase(),
-            style: TextStyle(fontSize: size * 0.42, fontWeight: FontWeight.w800, color: dim ? AppTheme.textGrey : AppTheme.primary)),
+            style: TextStyle(
+                fontSize: size * 0.42,
+                fontWeight: FontWeight.w800,
+                color: dim ? AppTheme.textGrey : AppTheme.primary)),
       );
 }
 
 class DonutChart extends StatelessWidget {
   final List<int> counts;
-  const DonutChart(this.counts, {super.key});
+  final String? centerValue;
+  final String? centerLabel;
+  final double size;
+  const DonutChart(
+    this.counts, {
+    super.key,
+    this.centerValue,
+    this.centerLabel,
+    this.size = 124,
+  });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        width: 124,
-        height: 124,
-        child: CustomPaint(
-          painter: _DonutPainter(counts),
-          child: Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Text('${counts.fold<int>(0, (a, b) => a + b)}',
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: AppTheme.textDark, height: 1)),
-              const Text(AppStrings.dashboardCowCount,
-                  style: TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-            ]),
-          ),
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _DonutPainter(counts),
+        child: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(
+              centerValue ?? '${counts.fold<int>(0, (a, b) => a + b)}',
+              style: textTheme.headlineSmall?.copyWith(
+                color: AppTheme.textDark,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            Text(
+              centerLabel ?? AppStrings.dashboardCowCount,
+              style: textTheme.labelSmall?.copyWith(color: AppTheme.textGrey),
+            ),
+          ]),
         ),
-      );
+      ),
+    );
+  }
 }
+
+Widget chevron(BuildContext context, {Color? color}) => Icon(
+      Directionality.of(context) == TextDirection.rtl
+          ? Icons.chevron_left_rounded
+          : Icons.chevron_right_rounded,
+      color: color ?? AppTheme.textGrey,
+    );
 
 class _DonutPainter extends CustomPainter {
   final List<int> counts;
@@ -181,7 +283,7 @@ class _DonutPainter extends CustomPainter {
     final track = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 16
-      ..color = AppTheme.line;
+      ..color = AppTheme.border;
     if (total == 0) {
       canvas.drawArc(rect, 0, math.pi * 2, false, track);
       return;

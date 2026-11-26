@@ -43,7 +43,7 @@ void main() {
         home: CowFormScreen(cow: cow, service: service),
       ),
     );
-    await tester.tap(find.text('Save cow'));
+    await tester.tap(find.text('Enregistrer'));
     await tester.pumpAndSettle();
 
     expect(find.text(serverMessage), findsOneWidget);

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/app_icons.dart';
 import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../models/alert.dart';
@@ -9,14 +11,37 @@ import '../../services/api_client.dart';
 import '../../services/cow_service.dart';
 import '../../services/eleveur_service.dart';
 import '../../services/session.dart';
+import '../../widgets/async_state.dart';
 import '../../widgets/widgets.dart';
-import '../alerts/alerts_screen.dart';
 import '../cows/cows_screen.dart';
 
+part 'home_widgets.dart';
+part 'home_appetite_widgets.dart';
+
+/// Height reserved for the background-refresh bar, so the layout never jumps.
+const double _progressHeight = 3;
+
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.onOpenCows});
+  const HomeScreen({
+    super.key,
+    required this.onOpenCows,
+    required this.onOpenAlerts,
+    this.onOpenEleveurs,
+    this.onAddCow,
+    this.onScanCow,
+    @visibleForTesting this.dashboardFixture,
+    @visibleForTesting this.skipInitialLoad = false,
+  });
 
   final void Function(Appetite? appetite) onOpenCows;
+  final VoidCallback onOpenAlerts;
+  final VoidCallback? onOpenEleveurs;
+  final Future<void> Function()? onAddCow;
+  final Future<void> Function()? onScanCow;
+  @visibleForTesting
+  final HomeDashboardFixture? dashboardFixture;
+  @visibleForTesting
+  final bool skipInitialLoad;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -32,12 +57,25 @@ class _DashboardCow {
 class _DashboardData {
   const _DashboardData({
     required this.cows,
-    required this.unreadAlerts,
+    required this.unreadAlertCount,
     required this.eleveurCount,
   });
 
   final List<_DashboardCow> cows;
-  final List<Alert> unreadAlerts;
+  final int unreadAlertCount;
+  final int eleveurCount;
+}
+
+@visibleForTesting
+class HomeDashboardFixture {
+  const HomeDashboardFixture({
+    required this.cows,
+    required this.unreadAlertCount,
+    required this.eleveurCount,
+  });
+
+  final List<(Cow, Appetite?)> cows;
+  final int unreadAlertCount;
   final int eleveurCount;
 }
 
@@ -49,7 +87,22 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _refresh();
+    final fixture = widget.dashboardFixture;
+    if (fixture != null) {
+      _data = _DashboardData(
+        cows: [
+          for (final (cow, appetite) in fixture.cows)
+            _DashboardCow(cow, appetite),
+        ],
+        unreadAlertCount: fixture.unreadAlertCount,
+        eleveurCount: fixture.eleveurCount,
+      );
+      _loading = false;
+    } else if (widget.skipInitialLoad) {
+      _loading = false;
+    } else {
+      _refresh();
+    }
   }
 
   Future<void> _refresh({bool showLoading = true}) async {
@@ -76,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _data = _DashboardData(
           cows: entries,
-          unreadAlerts: result[1] as List<Alert>,
+          unreadAlertCount: (result[1] as List<Alert>).length,
           eleveurCount: (result[2] as List<EleveurRecord>).length,
         );
         _loading = false;
@@ -102,23 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
     widget.onOpenCows(appetite);
   }
 
-  void _openAlerts() {
-    Navigator.push<void>(
-      context,
-      MaterialPageRoute(builder: (_) => const AlertsScreen()),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final user = Session.instance.currentUser.value;
-    final name = user?['name'];
-    final adminName = name is String ? name : '';
     final data = _data;
-    final watch = data?.cows
-            .where((entry) => entry.appetite == Appetite.low)
-            .toList(growable: false) ??
-        const <_DashboardCow>[];
     final counts = [
       for (final appetite in Appetite.values)
         data?.cows.where((entry) => entry.appetite == appetite).length ?? 0,
@@ -127,302 +166,90 @@ class _HomeScreenState extends State<HomeScreen> {
         data?.cows.any((entry) => entry.appetite != null) ?? false;
 
     return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          children: [
-            _header(adminName, watch.length, data?.unreadAlerts.length ?? 0),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-              child: _loading && data == null
-                  ? const Padding(
-                      padding: EdgeInsets.all(48),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : data == null
-                      ? _dashboardError(_error ?? AppStrings.requestFailed)
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (_loading) const LinearProgressIndicator(),
-                            if (_error != null) ...[
-                              const SizedBox(height: 10),
-                              _errorBanner(_error!),
-                            ],
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: KpiTile(
-                                    Icons.pets_rounded,
-                                    '${data.cows.length}',
-                                    AppStrings.dashboardCowCount,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: KpiTile(
-                                    Icons.notifications_none_rounded,
-                                    '${data.unreadAlerts.length}',
-                                    AppStrings.dashboardAlerts,
-                                    color: data.unreadAlerts.isEmpty
-                                        ? AppTheme.primary
-                                        : AppTheme.warn,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: KpiTile(
-                                    Icons.groups_rounded,
-                                    '${data.eleveurCount}',
-                                    AppStrings.dashboardEleveurs,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SectionTitle(
-                              AppStrings.appetiteSummaryTitle,
-                              trailing: TextButton(
-                                onPressed: () => _goCows(null),
-                                child: const Text(AppStrings.cowsTitle),
-                              ),
-                            ),
-                            AppCard(
-                              child: hasAppetiteData
-                                  ? Row(
-                                      children: [
-                                        DonutChart(counts),
-                                        const SizedBox(width: 18),
-                                        Expanded(
-                                          child: Column(
-                                            children: [
-                                              for (var index = 0;
-                                                  index <
-                                                      Appetite.values.length;
-                                                  index++)
-                                                _appetiteCount(
-                                                  Appetite.values[index],
-                                                  counts[index],
-                                                ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  : const Text(
-                                      AppStrings.appetiteDataUnavailable,
-                                    ),
-                            ),
-                            SectionTitle(
-                              AppStrings.cowsToWatchTitle,
-                              trailing: TextButton(
-                                onPressed: () => _goCows(Appetite.low),
-                                child: const Text(AppStrings.cowsTitle),
-                              ),
-                            ),
-                            if (watch.isEmpty)
-                              const AppCard(
-                                child: Text(
-                                  AppStrings.noCowsToWatch,
-                                  style: TextStyle(color: AppTheme.textGrey),
-                                ),
-                              ),
-                            for (final entry in watch.take(3)) ...[
-                              CowRow(
-                                entry.cow,
-                                latestAppetite: entry.appetite,
-                                onChanged: () => _refresh(),
-                              ),
-                              const SizedBox(height: 10),
-                            ],
-                            OutlinedButton.icon(
-                              onPressed: _openAlerts,
-                              icon:
-                                  const Icon(Icons.notifications_none_rounded),
-                              label: Text(
-                                '${AppStrings.alertsTitle} · ${data.unreadAlerts.length}',
-                              ),
-                            ),
-                          ],
-                        ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _header(String adminName, int watchCount, int alertCount) => Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.primary,
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(30),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        adminName.isEmpty ? 'A' : adminName[0].toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Smart Élevage',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 21,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          Text(
-                            adminName.isEmpty
-                                ? 'Administrateur'
-                                : 'Administrateur · $adminName',
-                            style: TextStyle(
-                              color: Colors.white.withAlpha(180),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: _openAlerts,
-                      tooltip: AppStrings.alertsTitle,
-                      icon: Badge(
-                        isLabelVisible: alertCount > 0,
-                        label: Text('$alertCount'),
-                        backgroundColor: AppTheme.warn,
-                        child: const Icon(
-                          Icons.notifications_none_rounded,
-                          color: Colors.white,
-                          size: 26,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withAlpha(24),
-                    borderRadius: BorderRadius.circular(14),
+      // Light status-bar icons: the header behind them is the brand color.
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light,
+        child: RefreshIndicator(
+          // The pull-to-refresh spinner is enough: no second progress bar.
+          onRefresh: () => _refresh(showLoading: false),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            children: [
+              _HomeHeader(
+                alertCount: data?.unreadAlertCount ?? 0,
+                onOpenAlerts: widget.onOpenAlerts,
+              ),
+              SizedBox(
+                height: _progressHeight,
+                child: _loading && data != null
+                    ? const LinearProgressIndicator()
+                    : null,
+              ),
+              if (_loading && data == null)
+                const AppLoadingState()
+              else if (data == null)
+                AppErrorState(
+                  message: _error ?? AppStrings.requestFailed,
+                  retryLabel: AppStrings.retry,
+                  onRetry: () => _refresh(),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppTheme.space16,
+                    AppTheme.space16,
+                    AppTheme.space16,
+                    AppTheme.space24,
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        watchCount == 0
-                            ? Icons.check_circle_outline
-                            : Icons.warning_amber_rounded,
-                        color: watchCount == 0
-                            ? Colors.white
-                            : const Color(0xFFFFB380),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          watchCount == 0
-                              ? AppStrings.noCowsToWatch
-                              : '$watchCount low-appetite cow${watchCount == 1 ? '' : 's'}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
+                      if (_error != null) ...[
+                        _HomeErrorBanner(
+                          message: _error!,
+                          onRetry: () => _refresh(),
                         ),
+                        const SizedBox(height: AppTheme.space16),
+                      ],
+                      _HomeKpiRow(
+                        cowCount: data.cows.length,
+                        alertCount: data.unreadAlertCount,
+                        eleveurCount: data.eleveurCount,
+                        onOpenCows: () => _goCows(null),
+                        onOpenAlerts: widget.onOpenAlerts,
+                        onOpenEleveurs: widget.onOpenEleveurs,
+                      ),
+                      if (widget.onAddCow != null ||
+                          widget.onScanCow != null) ...[
+                        const SizedBox(height: AppTheme.space16),
+                        _HomeQuickActions(
+                          onAddCow: widget.onAddCow,
+                          onScanCow: widget.onScanCow,
+                        ),
+                      ],
+                      const SizedBox(height: AppTheme.space8),
+                      SectionTitle(
+                        AppStrings.appetiteSummaryTitle,
+                        trailing: TextButton.icon(
+                          onPressed: () => _goCows(null),
+                          icon: const Icon(Icons.chevron_right_rounded),
+                          label: const Text(AppStrings.seeAll),
+                        ),
+                      ),
+                      _HomeAppetiteCard(
+                        counts: counts,
+                        cowCount: data.cows.length,
+                        hasAppetiteData: hasAppetiteData,
+                        onSelect: _goCows,
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-  Widget _appetiteCount(Appetite appetite, int count) => InkWell(
-        onTap: () => _goCows(appetite),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: appetite.color,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: Text(appetite.trendLabel)),
-              Text(
-                '$count',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: AppTheme.textGrey,
-              ),
             ],
           ),
         ),
-      );
-
-  Widget _dashboardError(String message) => AppCard(
-        child: Column(
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            TextButton(
-              onPressed: () => _refresh(),
-              child: const Text(AppStrings.retry),
-            ),
-          ],
-        ),
-      );
-
-  Widget _errorBanner(String message) => AppCard(
-        color: AppTheme.amberSoft,
-        child: Column(
-          children: [
-            Text(message, style: const TextStyle(color: AppTheme.warn)),
-            TextButton(
-              onPressed: () => _refresh(),
-              child: const Text(AppStrings.retry),
-            ),
-          ],
-        ),
-      );
+      ),
+    );
+  }
 }

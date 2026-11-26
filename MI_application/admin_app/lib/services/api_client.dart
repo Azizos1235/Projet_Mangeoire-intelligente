@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:http/http.dart' as http;
 
 import '../core/config.dart';
@@ -94,6 +94,20 @@ class ApiClient {
         handleAuthErrors: handleAuthErrors,
       );
 
+  Future<T> patch<T>(
+    String path, {
+    Object? body = const <String, dynamic>{},
+    bool authenticated = true,
+    bool handleAuthErrors = true,
+  }) =>
+      _request<T>(
+        'PATCH',
+        path,
+        body: body,
+        authenticated: authenticated,
+        handleAuthErrors: handleAuthErrors,
+      );
+
   Future<T> delete<T>(
     String path, {
     Object? body,
@@ -121,56 +135,34 @@ class ApiClient {
 
     try {
       return await _sendWithRetry<T>(() async {
-        final stopwatch = Stopwatch()..start();
-        if (kDebugMode) debugPrint('[api] $method $path start');
-        final http.Response response;
-        try {
-          response = switch (method) {
-            'GET' => await _client.get(uri, headers: headers),
-            'POST' => await _client.post(
-                uri,
-                headers: headers,
-                body: jsonEncode(body),
-              ),
-            'PUT' => await _client.put(
-                uri,
-                headers: headers,
-                body: jsonEncode(body),
-              ),
-            'DELETE' => await _client.delete(
-                uri,
-                headers: headers,
-                body: body == null ? null : jsonEncode(body),
-              ),
-            _ => throw ArgumentError.value(
-                method,
-                'method',
-                'Unsupported method',
-              ),
-          };
-        } catch (error) {
-          if (kDebugMode) {
-            debugPrint(
-              '[api] $method $path failed '
-              '(${stopwatch.elapsedMilliseconds}ms): $error',
-            );
-          }
-          rethrow;
-        }
-        if (kDebugMode) {
-          debugPrint(
-            '[api] $method $path complete '
-            '(${stopwatch.elapsedMilliseconds}ms) status=${response.statusCode}',
-          );
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            final body = response.body;
-            debugPrint(
-              '[api] $method $path error body '
-              '(length=${body.length}): '
-              '${body.length > 2000 ? body.substring(0, 2000) : body}',
-            );
-          }
-        }
+        final response = switch (method) {
+          'GET' => await _client.get(uri, headers: headers),
+          'POST' => await _client.post(
+              uri,
+              headers: headers,
+              body: jsonEncode(body),
+            ),
+          'PUT' => await _client.put(
+              uri,
+              headers: headers,
+              body: jsonEncode(body),
+            ),
+          'PATCH' => await _client.patch(
+              uri,
+              headers: headers,
+              body: jsonEncode(body),
+            ),
+          'DELETE' => await _client.delete(
+              uri,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            ),
+          _ => throw ArgumentError.value(
+              method,
+              'method',
+              'Unsupported method',
+            ),
+        };
         if (expectedStatusCode != null &&
             response.statusCode >= 200 &&
             response.statusCode < 300 &&
@@ -206,29 +198,8 @@ class ApiClient {
       if (token != null && token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
       }
-      if (kDebugMode) {
-        final payload = token == null ? null : _jwtPayload(token);
-        debugPrint(
-          '[api] auth token present=${token != null && token.isNotEmpty} '
-          'length=${token?.length ?? 0} '
-          'jwtRole=${payload?['role']} jwtExp=${payload?['exp']}',
-        );
-      }
     }
     return headers;
-  }
-
-  Map<String, dynamic>? _jwtPayload(String token) {
-    final parts = token.split('.');
-    if (parts.length != 3) return null;
-    try {
-      final payload = jsonDecode(
-        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
-      );
-      return payload is Map<String, dynamic> ? payload : null;
-    } on FormatException {
-      return null;
-    }
   }
 
   Uri _buildUri(String path) {
@@ -297,7 +268,7 @@ class ApiClient {
       final detail = _nonEmptyString(errorBody['detail']);
       throw ApiException(
         statusCode: response.statusCode,
-        message: detail ?? error ?? AppStrings.requestFailed,
+        message: _mapErrorMessage(error, detail),
         error: error,
         detail: detail,
       );
@@ -312,11 +283,52 @@ class ApiClient {
     );
   }
 
+  Future<dynamic> markAlertRead(String alertId) =>
+      patch('/alerts/${Uri.encodeComponent(alertId)}/read');
+
   String? _nonEmptyString(Object? value) {
     if (value is String && value.trim().isNotEmpty) {
       return value.trim();
     }
     return null;
+  }
+
+  String _mapErrorMessage(String? error, String? detail) {
+    final raw = '${error ?? ''} ${detail ?? ''}'.trim().toLowerCase();
+    if (raw.contains('invalid objectid') ||
+        raw.contains('invalid id') ||
+        raw.contains('object id')) {
+      return 'Identifiant invalide.';
+    }
+    if (raw.contains('alert') && raw.contains('not found')) {
+      return 'Alerte introuvable.';
+    }
+    if (raw.contains('task') && raw.contains('not found')) {
+      return 'Tâche introuvable.';
+    }
+    if (raw.contains('cow') && raw.contains('not found')) {
+      return 'Bovin introuvable.';
+    }
+    if (raw.contains('eleveur') && raw.contains('not found')) {
+      return 'Éleveur introuvable.';
+    }
+    if (raw.contains('forbidden') || raw.contains('permission')) {
+      return 'Vous n’avez pas l’autorisation de réaliser cette action.';
+    }
+    if (raw.contains('unauthorized') || raw.contains('not authenticated')) {
+      return 'Votre session a expiré. Veuillez vous reconnecter.';
+    }
+    if (raw.contains('password change required')) {
+      return 'Vous devez changer votre mot de passe.';
+    }
+    if (error == 'validation_error' ||
+        raw.contains('validation') ||
+        raw.contains('invalid')) {
+      return 'Les informations saisies sont invalides.';
+    }
+    if (detail != null && detail.isNotEmpty) return detail;
+    if (error != null && error.isNotEmpty) return error;
+    return AppStrings.frenchUnknownError;
   }
 
   void dispose() {

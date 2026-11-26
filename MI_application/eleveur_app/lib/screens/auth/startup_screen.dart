@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import '../../core/app_routes.dart';
 import '../../core/l10n.dart';
 import '../../core/theme.dart';
-import '../../services/api_client.dart';
-import '../../services/auth_service.dart';
 import '../../services/session.dart';
 
 class StartupScreen extends StatefulWidget {
@@ -41,16 +39,8 @@ class _StartupScreenState extends State<StartupScreen> {
         return;
       }
 
-      await AuthService.instance.me();
-      if (!mounted) return;
-      _navigate(AppRoutes.home);
+      _navigate(AppRoutes.nameEntry);
     } on TimeoutException {
-      if (mounted) setState(() => _errorKey = 'api_error_network');
-    } on UnauthorizedApiException {
-      // ApiClient clears the session and routes to the welcome screen.
-    } on SubscriptionExpiredApiException {
-      // ApiClient routes to the subscription-expired screen.
-    } on NetworkApiException {
       if (mounted) setState(() => _errorKey = 'api_error_network');
     } catch (_) {
       if (mounted) setState(() => _errorKey = 'api_error_generic');

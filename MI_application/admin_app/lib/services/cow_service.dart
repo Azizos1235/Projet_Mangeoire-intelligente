@@ -5,10 +5,6 @@ class CowConflictException implements Exception {
   const CowConflictException();
 }
 
-class PredictionUnavailableException implements Exception {
-  const PredictionUnavailableException();
-}
-
 class CowService {
   CowService._(this._api);
 
@@ -26,6 +22,13 @@ class CowService {
   Future<Cow> profile(String id) async {
     final response = await _api
         .get<Map<String, dynamic>>('/profiles/${Uri.encodeComponent(id)}');
+    return Cow.fromJson(response);
+  }
+
+  Future<Cow> findCowByNfcUid(String uid) async {
+    final response = await _api.get<Map<String, dynamic>>(
+      '/profiles/by-nfc/${Uri.encodeComponent(uid)}',
+    );
     return Cow.fromJson(response);
   }
 
@@ -86,17 +89,6 @@ class CowService {
       }
       return DispatchRecord.fromJson(Map<String, dynamic>.from(item));
     }).toList(growable: false);
-  }
-
-  Future<Object?> predict(String id) async {
-    try {
-      return await _api.get<Object?>('/predict/${Uri.encodeComponent(id)}');
-    } on ApiException catch (error) {
-      if (error.statusCode == 501 || error.statusCode == 502) {
-        throw const PredictionUnavailableException();
-      }
-      rethrow;
-    }
   }
 
   Future<Cow> createProfile({

@@ -1,21 +1,15 @@
+import 'theme.dart';
+
 enum CowAppetiteClass { increasing, stable, decreasing }
 
 abstract final class AppetiteAnalysis {
   static const trendLength = 14;
 
   static CowAppetiteClass? classFromLabel(String label) =>
-      switch (label.trim().toLowerCase()) {
-        'increasing' ||
-        'increase' ||
-        'increased' ||
-        'high' =>
-          CowAppetiteClass.increasing,
-        'stable' || 'normal' => CowAppetiteClass.stable,
-        'decreasing' ||
-        'decrease' ||
-        'decreased' ||
-        'low' =>
-          CowAppetiteClass.decreasing,
+      switch (AppetiteTrendStyle.parse(label)) {
+        AppetiteTrend.increasing => CowAppetiteClass.increasing,
+        AppetiteTrend.stable => CowAppetiteClass.stable,
+        AppetiteTrend.decreasing => CowAppetiteClass.decreasing,
         _ => null,
       };
 

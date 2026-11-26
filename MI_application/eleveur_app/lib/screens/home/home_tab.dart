@@ -1,41 +1,36 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kDebugMode, TargetPlatform, visibleForTesting;
 import 'package:flutter/material.dart';
 import '../../core/config.dart';
+import '../../core/app_route_observer.dart';
 import '../../core/l10n.dart';
 import '../../core/theme.dart';
-import '../../models/alert.dart';
 import '../../models/cow_appetite.dart';
 import '../../models/cow_profile.dart';
-import '../../services/alert_service.dart';
+import '../../models/farm_task.dart';
+import '../../native/notification_settings.dart';
 import '../../services/cow_service.dart';
 import '../../services/ws_service.dart';
 import '../../widgets/async_state.dart';
+import '../../widgets/task_type_style.dart';
 import '../../widgets/widgets.dart';
 import '../cows/cows_by_class_screen.dart';
-
-extension on CowAppetiteClass {
-  // Adapt these l10n keys to the ones your old appetite labels used (a.key).
-  String get key => 'appetite_$name';
-  Color get color => switch (this) {
-        CowAppetiteClass.increasing => AppTheme.primary,
-        CowAppetiteClass.stable => AlertSeverity.info.color,
-        CowAppetiteClass.decreasing => AlertSeverity.critical.color,
-      };
-  IconData get icon => switch (this) {
-        CowAppetiteClass.increasing => Icons.trending_up_rounded,
-        CowAppetiteClass.stable => Icons.trending_flat_rounded,
-        CowAppetiteClass.decreasing => Icons.trending_down_rounded,
-      };
-}
 
 class HomeTab extends StatefulWidget {
   final ValueChanged<int> onGoTab;
   final VoidCallback onAddCow;
   final VoidCallback onLogout;
   final String? name; // pass the éleveur name from eleveur_home_screen.dart
+  final List<FarmTask> pendingTasks;
+  final bool tasksLoading;
+  final Object? tasksError;
+  final Future<void> Function()? onRefreshTasks;
+  final VoidCallback? onViewAllTasks;
+  final ValueChanged<FarmTask>? onTaskTap;
+  final bool isActive;
   @visibleForTesting
   final List<CowReference>? initialCows;
   @visibleForTesting
@@ -46,6 +41,13 @@ class HomeTab extends StatefulWidget {
     required this.onGoTab,
     required this.onAddCow,
     required this.onLogout,
+    this.pendingTasks = const [],
+    this.tasksLoading = false,
+    this.tasksError,
+    this.onRefreshTasks,
+    this.onViewAllTasks,
+    this.onTaskTap,
+    this.isActive = true,
     this.name,
     this.initialCows,
     this.initialAppetiteByInternalId = const {},
@@ -55,17 +57,22 @@ class HomeTab extends StatefulWidget {
   State<HomeTab> createState() => _HomeTabState();
 }
 
-class _HomeTabState extends State<HomeTab> {
+class _HomeTabState extends State<HomeTab>
+    with WidgetsBindingObserver, RouteAware {
   List<CowReference>? _cows;
-  List<Alert> _alerts = const [];
   Map<String, String?> _appetiteByInternalId = const {};
   Object? _error;
   DateTime? _lastUpdate;
   StreamSubscription<Map<String, dynamic>>? _ws;
+  Timer? _taskPollTimer;
+  ModalRoute<dynamic>? _observedRoute;
+  bool _routeVisible = true;
+  bool _isRefreshingTasks = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _log('API base URL=${AppConfig.apiBaseUrl}');
     if (widget.initialCows != null) {
       _cows = widget.initialCows;
@@ -80,7 +87,124 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (!identical(route, _observedRoute)) {
+      if (_observedRoute != null) appRouteObserver.unsubscribe(this);
+      _observedRoute = route;
+      if (route != null) {
+        appRouteObserver.subscribe(this, route);
+        _routeVisible = route.isCurrent;
+      }
+    }
+    _syncTaskPolling();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive ||
+        oldWidget.onRefreshTasks != widget.onRefreshTasks) {
+      _syncTaskPolling(refreshNow: widget.isActive);
+    }
+  }
+
+  @override
+  void didPush() {
+    _routeVisible = true;
+    _syncTaskPolling();
+  }
+
+  @override
+  void didPushNext() {
+    _routeVisible = false;
+    _syncTaskPolling();
+  }
+
+  @override
+  void didPopNext() {
+    _routeVisible = true;
+    _syncTaskPolling(refreshNow: true);
+  }
+
+  @override
+  void didPop() {
+    _routeVisible = false;
+    _syncTaskPolling();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncTaskPolling(refreshNow: state == AppLifecycleState.resumed);
+  }
+
+  bool get _isForeground {
+    final state = WidgetsBinding.instance.lifecycleState;
+    return state == null || state == AppLifecycleState.resumed;
+  }
+
+  void _syncTaskPolling({bool refreshNow = false}) {
+    _taskPollTimer?.cancel();
+    _taskPollTimer = null;
+    if (!widget.isActive ||
+        !_routeVisible ||
+        !_isForeground ||
+        widget.onRefreshTasks == null) {
+      return;
+    }
+    if (refreshNow) unawaited(_refreshTasks());
+    _taskPollTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_refreshTasks()),
+    );
+  }
+
+  Future<void> _refreshTasks() async {
+    if (_isRefreshingTasks || !mounted) return;
+    _isRefreshingTasks = true;
+    try {
+      await widget.onRefreshTasks?.call();
+    } finally {
+      _isRefreshingTasks = false;
+    }
+  }
+
+  Future<void> _refreshHome() async {
+    await Future.wait([_load(), _refreshTasks()]);
+  }
+
+  Future<void> _openNotificationSettings() => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  context.tr('settings'),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textDark,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const NativeNotificationSettings(),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  @override
   void dispose() {
+    _taskPollTimer?.cancel();
+    appRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
     _ws?.cancel();
     super.dispose();
   }
@@ -94,18 +218,15 @@ class _HomeTabState extends State<HomeTab> {
     _log('load start');
     try {
       final cowsFuture = CowService.instance.getCows();
-      final alertsFuture = _loadAlertsSafely();
       final appetiteFuture = _loadAppetiteSafely();
       final cows = await cowsFuture;
       _log(
         'cows internalIds first5=${cows.take(5).map((cow) => cow.internalId).toList()}',
       );
-      final alerts = await alertsFuture;
       final appetite = await appetiteFuture;
       if (!mounted) return;
       setState(() {
         _cows = cows;
-        _alerts = alerts;
         if (appetite != null) {
           _appetiteByInternalId = appetite.appetiteByInternalId;
         }
@@ -119,15 +240,6 @@ class _HomeTabState extends State<HomeTab> {
       if (_cows == null) setState(() => _error = e);
     } finally {
       _log('load end (${sw.elapsedMilliseconds}ms)');
-    }
-  }
-
-  Future<List<Alert>> _loadAlertsSafely() async {
-    try {
-      return await AlertService.instance.getAlerts();
-    } catch (error) {
-      _log('alerts failed (ignored): $error');
-      return const [];
     }
   }
 
@@ -182,8 +294,6 @@ class _HomeTabState extends State<HomeTab> {
     _load();
   }
 
-  void _openCows() => widget.onGoTab(1);
-
   void _openAppetiteFilter(CowAppetiteFilter filter) {
     final cows = _cows;
     if (cows == null) return;
@@ -208,13 +318,10 @@ class _HomeTabState extends State<HomeTab> {
     }
 
     final entries = cowAppetiteEntries(cows, _appetiteByInternalId);
-    final counts = cowAppetiteCounts(entries);
-    final unread = _alerts.where((a) => !a.isRead).length;
-    final low = counts[CowAppetiteClass.decreasing] ?? 0;
 
     return SafeArea(
       child: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: _refreshHome,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -237,6 +344,12 @@ class _HomeTabState extends State<HomeTab> {
                 ),
               ),
               const LangToggle(),
+              if (defaultTargetPlatform == TargetPlatform.android)
+                IconButton(
+                  tooltip: context.tr('settings'),
+                  onPressed: _openNotificationSettings,
+                  icon: const Icon(Icons.settings_outlined),
+                ),
               IconButton(
                 tooltip: context.tr('logout'),
                 onPressed: widget.onLogout,
@@ -254,10 +367,12 @@ class _HomeTabState extends State<HomeTab> {
 
             // ---- What to do now
             _TodoCard(
-              unread: unread,
-              low: low,
-              onAlerts: () => widget.onGoTab(2),
-              onCows: _openCows,
+              tasks: widget.pendingTasks,
+              loading: widget.tasksLoading,
+              error: widget.tasksError,
+              onRetry: () => unawaited(_refreshTasks()),
+              onViewAll: widget.onViewAllTasks ?? () => widget.onGoTab(2),
+              onTaskTap: widget.onTaskTap ?? (_) => widget.onGoTab(2),
             ),
             const SizedBox(height: 16),
 
@@ -311,25 +426,6 @@ class HomeAppetiteSummary extends StatelessWidget {
     return AppCard(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
       child: Column(children: [
-        Text(context.tr('herd_today'),
-            style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.textDark)),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppTheme.primarySoft,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(context.tr('tap_hint'),
-              style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.primary)),
-        ),
-        const SizedBox(height: 22),
         GestureDetector(
           onTapUp: (details) {
             final index = homeAppetiteDonutSegmentAt(
@@ -530,7 +626,7 @@ class _ClassTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppCard(
       key: tileKey,
-      color: a.color.withValues(alpha: 0.12),
+      color: a.lightColor,
       onTap: onTap,
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
       child: SizedBox(
@@ -610,104 +706,172 @@ class _NoDataTile extends StatelessWidget {
 }
 
 class _TodoCard extends StatelessWidget {
-  final int unread;
-  final int low;
-  final VoidCallback onAlerts;
-  final VoidCallback onCows;
-  const _TodoCard(
-      {required this.unread,
-      required this.low,
-      required this.onAlerts,
-      required this.onCows});
+  final List<FarmTask> tasks;
+  final bool loading;
+  final Object? error;
+  final VoidCallback onRetry;
+  final VoidCallback onViewAll;
+  final ValueChanged<FarmTask> onTaskTap;
+
+  const _TodoCard({
+    required this.tasks,
+    required this.loading,
+    required this.error,
+    required this.onRetry,
+    required this.onViewAll,
+    required this.onTaskTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final steps = <Widget>[];
-    void add(IconData icon, Color color, String text, VoidCallback onTap) {
-      steps.add(_Step(
-          n: steps.length + 1,
-          icon: icon,
-          color: color,
-          text: text,
-          onTap: onTap));
-    }
-
-    if (unread > 0) {
-      add(Icons.notifications_active_rounded, AlertSeverity.critical.color,
-          context.tr('todo_alerts').replaceAll('{n}', '$unread'), onAlerts);
-    }
-    if (low > 0) {
-      add(Icons.trending_down_rounded, CowAppetiteClass.decreasing.color,
-          context.tr('todo_dec').replaceAll('{n}', '$low'), onCows);
-    }
-
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(context.tr('todo'),
-            style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.textDark)),
-        const SizedBox(height: 6),
-        if (steps.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            child: Text(context.tr('todo_ok'),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                context.tr('tasks_home_title'),
                 style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primary)),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.textDark,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: onViewAll,
+              child: Text(context.tr('tasks_view_all')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        if (loading && tasks.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
           )
+        else if (error != null && tasks.isEmpty)
+          AppLoadError(error: error!, onRetry: onRetry)
+        else if (tasks.isEmpty)
+          AppEmptyState(message: context.tr('tasks_home_empty'))
         else
-          ...steps,
+          for (final (index, task) in tasks.take(3).indexed) ...[
+            _HomeTaskRow(task: task, onTap: () => onTaskTap(task)),
+            if (index < tasks.take(3).length - 1)
+              const Divider(height: 1, indent: 52),
+          ],
       ]),
     );
   }
 }
 
-class _Step extends StatelessWidget {
-  final int n;
-  final IconData icon;
-  final Color color;
-  final String text;
+class _HomeTaskRow extends StatelessWidget {
+  const _HomeTaskRow({required this.task, required this.onTap});
+
+  final FarmTask task;
   final VoidCallback onTap;
-  const _Step(
-      {required this.n,
-      required this.icon,
-      required this.color,
-      required this.text,
-      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
+    final dueAt = task.dueAt;
+    final overdue = dueAt != null && dueAt.isBefore(DateTime.now().toUtc());
+    final type =
+        _supportedTaskTypes.contains(task.taskType) ? task.taskType : 'custom';
+    final color = TaskTypeStyle.colorFor(type);
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       child: Padding(
+        key: ValueKey('home-task-${task.id}'),
         padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.14), shape: BoxShape.circle),
-            child: Icon(icon, color: color, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(text,
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textDark)),
-          ),
-          const Icon(Icons.chevron_right_rounded, color: AppTheme.textGrey),
-        ]),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.14),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(TaskTypeStyle.iconFor(type), color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    task.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.textDark,
+                    ),
+                  ),
+                  if (task.cowId != null || dueAt != null) ...[
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        if (task.cowId != null)
+                          Text(
+                            '${context.tr('task_cow')}: ${task.cowId}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textGrey,
+                            ),
+                          ),
+                        if (dueAt != null)
+                          Text(
+                            '${context.tr(overdue ? 'task_overdue' : 'task_due_at')}: '
+                            '${_formatTaskDate(dueAt)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color:
+                                  overdue ? AppTheme.error : AppTheme.textGrey,
+                              fontWeight:
+                                  overdue ? FontWeight.w700 : FontWeight.normal,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppTheme.textGrey,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
+
+String _formatTaskDate(DateTime value) {
+  final date = value.toLocal();
+  return '${date.day.toString().padLeft(2, '0')}/'
+      '${date.month.toString().padLeft(2, '0')}/${date.year} '
+      '${date.hour.toString().padLeft(2, '0')}:'
+      '${date.minute.toString().padLeft(2, '0')}';
+}
+
+const _supportedTaskTypes = {
+  'sell',
+  'vet',
+  'butcher',
+  'check_weight',
+  'custom',
+};
 
 class _QuickAction extends StatelessWidget {
   final IconData icon;

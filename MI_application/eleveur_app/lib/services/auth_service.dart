@@ -74,6 +74,69 @@ class AuthService {
     return user;
   }
 
+  Future<EleveurUser> qrLogin(String token, String name) async {
+    final qrToken = token.trim();
+    final normalizedName = name.trim();
+    if (qrToken.isEmpty) {
+      throw ArgumentError('QR token is required.');
+    }
+    _validateName(normalizedName, name);
+
+    final response = await _api.post(
+      '/auth/eleveur/qr-login',
+      {'token': qrToken, 'name': normalizedName},
+      handleUnauthorized: false,
+    );
+    final user = _userFromAuthResponse(response, 'QR login');
+    final rawToken = response['token'] as String;
+    await _session.saveToken(rawToken);
+    _session.setCurrentUser(user);
+    return user;
+  }
+
+  Future<EleveurUser> verifyName(String name) async {
+    final normalizedName = name.trim();
+    _validateName(normalizedName, name);
+    final response = await _api.post(
+      '/auth/eleveur/verify-name',
+      {'name': normalizedName},
+      handleUnauthorized: false,
+    );
+    if (response is! Map<String, dynamic>) {
+      throw const FormatException('Invalid name verification response.');
+    }
+    final user = EleveurUser.fromJson(response);
+    _session.setCurrentUser(user);
+    return user;
+  }
+
+  void _validateName(String normalizedName, String originalName) {
+    if (normalizedName.length < 2 || normalizedName.length > 60) {
+      throw ArgumentError.value(
+        originalName,
+        'name',
+        'Name must contain 2 to 60 characters.',
+      );
+    }
+  }
+
+  EleveurUser _userFromAuthResponse(
+    dynamic response,
+    String responseName,
+  ) {
+    if (response is! Map<String, dynamic>) {
+      throw FormatException('Invalid $responseName response.');
+    }
+    final token = response['token'];
+    final rawUser = response['user'];
+    if (token is! String ||
+        token.trim().isEmpty ||
+        rawUser is! Map<String, dynamic>) {
+      throw FormatException('Invalid $responseName response.');
+    }
+    return EleveurUser.fromJson(rawUser);
+  }
+
   Future<EleveurUser> me() async {
     final authGeneration = _session.authGeneration;
     final response = await _api.get('/auth/me');

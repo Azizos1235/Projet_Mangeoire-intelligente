@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../services/api_client.dart';
 import '../../services/eleveur_service.dart';
+import '../../widgets/async_state.dart';
+import '../../widgets/widgets.dart';
 
 class EleveurDetailScreen extends StatefulWidget {
   const EleveurDetailScreen({super.key, required this.eleveurId});
@@ -56,7 +59,7 @@ class _EleveurDetailScreenState extends State<EleveurDetailScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
+            child: const Text(AppStrings.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
@@ -97,48 +100,29 @@ class _EleveurDetailScreenState extends State<EleveurDetailScreen> {
           onRefresh: _loadEleveur,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+            padding: const EdgeInsets.fromLTRB(
+              AppTheme.pageSpacing,
+              4,
+              AppTheme.pageSpacing,
+              32,
+            ),
             children: [
               if (_isLoading && _eleveur == null)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Center(child: CircularProgressIndicator()),
-                )
+                const AppLoadingState()
               else if (_errorMessage != null)
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      Text(
-                        _errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppTheme.warn),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: _loadEleveur,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
+                AppErrorState(
+                  message: _errorMessage!,
+                  onRetry: _loadEleveur,
+                  retryLabel: 'Retry',
                 )
               else if (_eleveur == null)
-                const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Cet éleveur est introuvable.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppTheme.textGrey),
-                  ),
+                const AppEmptyState(
+                  message: 'Cet éleveur est introuvable.',
+                  icon: Icons.person_search_outlined,
                 )
               else ...[
-                Container(
+                AppCard(
                   padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.line),
-                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

@@ -10,7 +10,6 @@ import '../../services/api_client.dart';
 import '../../services/cow_service.dart';
 import '../../services/ws_service.dart';
 import '../../widgets/async_state.dart';
-import '../../widgets/cow_tile.dart';
 import '../../widgets/widgets.dart';
 import 'edit_profile_screen.dart';
 
@@ -151,7 +150,8 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
 
   Future<void> _loadTrend() async {
     try {
-      final response = await CowService.instance.getDaily(widget.cow.internalId);
+      final response =
+          await CowService.instance.getDaily(widget.cow.internalId);
       final index = _indexDaily(response);
       final today = DateUtils.dateOnly(DateTime.now());
       final days = <DateTime>[
@@ -281,8 +281,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
 
   // ------------------------------------------------------------ helpers
 
-  static String _dayKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
+  static String _dayKey(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 
@@ -319,10 +318,10 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
   }
 
   static CowAppetiteClass? _classFromLabel(String label) =>
-      switch (label.trim().toLowerCase()) {
-        'increasing' || 'increased' || 'high' => CowAppetiteClass.increasing,
-        'stable' || 'normal' => CowAppetiteClass.stable,
-        'decreasing' || 'decreased' || 'low' => CowAppetiteClass.decreasing,
+      switch (AppetiteTrendStyle.parse(label)) {
+        AppetiteTrend.increasing => CowAppetiteClass.increasing,
+        AppetiteTrend.stable => CowAppetiteClass.stable,
+        AppetiteTrend.decreasing => CowAppetiteClass.decreasing,
         _ => null,
       };
 
@@ -498,7 +497,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
     }
     final color = a?.color ?? AppTheme.textGrey;
     return AppCard(
-      color: color.withValues(alpha: 0.12),
+      color: a?.lightColor ?? Colors.white,
       child: Row(children: [
         SizedBox(
           width: 112,
@@ -547,8 +546,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
                     color: color, size: 30),
                 const SizedBox(width: 6),
                 Flexible(
-                  child: Text(
-                      context.tr(a?.labelKey ?? 'appetite_no_data'),
+                  child: Text(context.tr(a?.labelKey ?? 'appetite_no_data'),
                       style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.w900,
@@ -559,9 +557,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
                 const SizedBox(height: 6),
                 Text(context.tr('advice_${a.name}'),
                     style: const TextStyle(
-                        fontSize: 14,
-                        height: 1.4,
-                        color: AppTheme.textDark)),
+                        fontSize: 14, height: 1.4, color: AppTheme.textDark)),
               ],
             ],
           ),
@@ -633,7 +629,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
         else if (_trendError != null)
           AppLoadError(error: _trendError!, onRetry: _retryTrend)
         else if (probs == null)
-          Text(context.tr('prediction_unavailable'),
+          Text(context.tr('appetite_data_unavailable'),
               style: const TextStyle(color: AppTheme.textGrey))
         else ...[
           for (final a in CowAppetiteClass.values) ...[
@@ -653,7 +649,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: top ? a.color.withValues(alpha: 0.12) : Colors.transparent,
+        color: top ? a.lightColor : Colors.transparent,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(children: [
@@ -688,7 +684,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
                     value: v,
                     minHeight: 10,
                     color: a.color,
-                    backgroundColor: a.color.withValues(alpha: 0.12),
+                    backgroundColor: a.lightColor,
                   ),
                 ),
               ),
@@ -868,9 +864,8 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
     final error = _dayError;
     if (error != null) {
       return Text(
-          context.tr(error is ApiException
-              ? error.messageKey
-              : 'api_error_generic'),
+          context.tr(
+              error is ApiException ? error.messageKey : 'api_error_generic'),
           style: const TextStyle(color: AppTheme.error));
     }
     final record = _dayRecord;
@@ -924,8 +919,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
           label: context.tr('meal_duration'),
           value: t.averageMealDurationMinutes.toString()),
       _TelemetryValue(
-          label: context.tr('no_food_visits'),
-          value: '${t.visitsWithoutFood}'),
+          label: context.tr('no_food_visits'), value: '${t.visitsWithoutFood}'),
       _TelemetryValue(
           label: context.tr('first_visit'),
           value: t.firstVisitHour?.toString() ?? '—'),
@@ -1029,7 +1023,8 @@ class _TrendPainter extends CustomPainter {
         ),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, Offset(xAt(i) - tp.width / 2, size.height - bottom + 10));
+      tp.paint(
+          canvas, Offset(xAt(i) - tp.width / 2, size.height - bottom + 10));
     }
   }
 
@@ -1052,8 +1047,8 @@ class _TelemetryValue extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Text(label,
-                style: const TextStyle(color: AppTheme.textGrey)),
+            child:
+                Text(label, style: const TextStyle(color: AppTheme.textGrey)),
           ),
           const SizedBox(width: 12),
           Flexible(

@@ -1,4 +1,3 @@
-
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +24,7 @@
 
 #include "coap3/coap.h"
 
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "rc522.h"
 #include "driver/rc522_spi.h"
@@ -42,12 +42,20 @@ static volatile bool s_reconnect = false;      /* set when the DTLS session must
 #define FEED_ATTEMPTS  2                       /* /feed tries before the random fallback */
 
 /* The simulation starts this many days after the start date (14 days of history first). */
-#define START_OFFSET_DAYS 14
+#define START_OFFSET_DAYS 1
 
 /* A card must stay on the reader this long to count as ONE visit. */
 #define HOLD_TIME_MS     15000
 /* A short loss of the card (reader flicker) below this does not reset the timer. */
 #define REMOVE_GRACE_MS  1500
+
+/* Servo SG90 (door) */
+#define SERVO_GPIO      13
+#define SERVO_OPEN_MS   5000                   /* how long the door stays open */
+#define SERVO_MIN_US    500                    /* SG90: 0 deg   */
+#define SERVO_MAX_US    2400                   /* SG90: 180 deg */
+
+static TaskHandle_t s_servo_task;
 
 static volatile bool s_waiting_feed = false;   /* true while a /feed answer is expected */
 static volatile bool s_feed_done = false;      /* set by the response handler */
@@ -242,6 +250,7 @@ typedef struct {
     day_plan_t plan;
     bool       plan_ready;                  /* a day is in progress for this cow */
     int        visit;                       /* visits already sent today */
+    bool       door_done;                   /* servo already opened for this day */
 } cow_t;
 static cow_t s_cows[MAX_COWS];
 static int   s_ncows = 0;
@@ -312,6 +321,68 @@ static void rfid_init(void)
                                           on_picc_state_changed, NULL));
     ESP_ERROR_CHECK(rc522_start(scanner));
     ESP_LOGI(TAG, "RFID reader started");
+}
+
+/* ------------------------------ Servo SG90 --------------------------------- */
+/* Wiring: orange=signal -> GPIO 13, red=5V, brown=GND (common with the ESP32) */
+static void servo_set_angle(int angle)
+{
+    if (angle < 0) {
+        angle = 0;
+    }
+    if (angle > 180) {
+        angle = 180;
+    }
+    uint32_t us = SERVO_MIN_US + (SERVO_MAX_US - SERVO_MIN_US) * angle / 180;
+    uint32_t duty = (us * (1 << 14)) / 20000;           /* 50 Hz = 20 ms period, 14-bit */
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
+/* Move, give the servo time to arrive, then STOP the PWM signal so it cannot jitter/turn. */
+static void servo_move(int angle)
+{
+    servo_set_angle(angle);
+    vTaskDelay(pdMS_TO_TICKS(700));
+    ledc_stop(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);  /* no pulses = servo idle */
+}
+
+static void servo_task(void *arg)
+{
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);        /* wait for a "first visit of the day" */
+        ESP_LOGI(TAG, "Servo: open");
+        servo_move(180);
+        vTaskDelay(pdMS_TO_TICKS(SERVO_OPEN_MS));
+        ESP_LOGI(TAG, "Servo: close");
+        servo_move(0);
+        ulTaskNotifyTake(pdTRUE, 0);                    /* drop triggers received while open */
+    }
+}
+
+static void servo_init(void)
+{
+    ledc_timer_config_t timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_14_BIT,
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = 50,
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+
+    ledc_channel_config_t ch = {
+        .gpio_num = SERVO_GPIO,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .timer_sel = LEDC_TIMER_0,
+        .duty = 0,
+        .hpoint = 0,
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ch));
+
+    servo_move(0);                                      /* start closed, then stop the signal */
+    xTaskCreate(servo_task, "servo_task", 2048, NULL, 4, &s_servo_task);
 }
 
 /* ------------------------------ WiFi --------------------------------------- */
@@ -655,8 +726,16 @@ static void coap_task(void *arg)
             plan_day(&cur->plan, served_g);
             cur->visit = 0;
             cur->plan_ready = true;
+            cur->door_done = false;        /* new day: the door may open once again */
             ESP_LOGI(TAG, "Cow %s: new day %04d-%02d-%02d (%d visits planned)", cur->id,
                      date->y, date->m, date->d, cur->plan.n);
+        }
+
+        /* Servo: only on this cow's FIRST visit of the day, once. */
+        if (cur->visit == 0 && !cur->door_done) {
+            cur->door_done = true;
+            ESP_LOGI(TAG, "Cow %s: first visit of the day -> open the door", cur->id);
+            xTaskNotifyGive(s_servo_task);
         }
 
         /* This scan is visit number cur->visit + 1 of her day. */
@@ -692,6 +771,7 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
 
     wifi_init();
+    servo_init();                          /* must run before coap_task (creates s_servo_task) */
     rfid_init();
     xTaskCreate(coap_task, "coap_task", 8192, NULL, 5, NULL);
 }

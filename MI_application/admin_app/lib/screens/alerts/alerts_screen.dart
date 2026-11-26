@@ -1,16 +1,39 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/app_icons.dart';
 import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../models/alert.dart';
+import '../../models/models.dart';
+import '../../native/canaux.dart';
 import '../../services/alert_service.dart';
 import '../../services/api_client.dart';
+import '../../services/cow_service.dart';
+import '../../services/eleveur_service.dart';
+import '../../services/task_service.dart';
+import '../../widgets/async_state.dart';
+import '../../widgets/task_form_dialog.dart';
 import '../../widgets/widgets.dart';
 
 class AlertsScreen extends StatefulWidget {
-  const AlertsScreen({super.key});
+  const AlertsScreen({
+    super.key,
+    this.isActive = true,
+    this.onUnreadCountChanged,
+    this.initialAlertId,
+    this.onInitialAlertHandled,
+    this.alertService,
+  });
+
+  final bool isActive;
+  final ValueChanged<int>? onUnreadCountChanged;
+  final String? initialAlertId;
+  final ValueChanged<String>? onInitialAlertHandled;
+  final AlertService? alertService;
 
   @override
   State<AlertsScreen> createState() => _AlertsScreenState();
@@ -18,55 +41,66 @@ class AlertsScreen extends StatefulWidget {
 
 class _AlertsScreenState extends State<AlertsScreen>
     with WidgetsBindingObserver {
+  AlertService get _alertService =>
+      widget.alertService ?? AlertService.instance;
   Timer? _pollTimer;
   List<Alert>? _alerts;
   String? _statusFilter;
   String? _errorMessage;
   bool _isLoading = true;
   bool _isFetching = false;
-  int _requestVersion = 0;
+  final Set<String> _sendingTaskIds = {};
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, GlobalKey> _alertKeys = {};
+  String? _handledInitialAlertId;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadAlerts(showLoading: true, force: true);
-    _startPolling();
+    unawaited(_loadAlerts(showLoading: true));
+    _syncPolling();
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _loadAlerts(force: true);
-      _startPolling();
-    } else {
-      _stopPolling();
+  void didUpdateWidget(covariant AlertsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) _syncPolling(refreshNow: true);
+    if (oldWidget.initialAlertId != widget.initialAlertId &&
+        widget.initialAlertId != null &&
+        _alerts != null) {
+      _handledInitialAlertId = null;
+      _focusInitialAlert(_alerts!);
     }
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncPolling(refreshNow: state == AppLifecycleState.resumed);
+  }
+
+  @override
   void dispose() {
-    _stopPolling();
+    _pollTimer?.cancel();
+    _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  void _startPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      final lifecycleState = WidgetsBinding.instance.lifecycleState;
-      if (lifecycleState == null ||
-          lifecycleState == AppLifecycleState.resumed) {
-        _loadAlerts();
-      } else {
-        _stopPolling();
-      }
-    });
+  bool get _isForeground {
+    final state = WidgetsBinding.instance.lifecycleState;
+    return state == null || state == AppLifecycleState.resumed;
   }
 
-  void _stopPolling() {
+  void _syncPolling({bool refreshNow = false}) {
     _pollTimer?.cancel();
     _pollTimer = null;
+    if (!widget.isActive || !_isForeground) return;
+    if (refreshNow) unawaited(_loadAlerts());
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_loadAlerts()),
+    );
   }
 
   Future<void> _loadAlerts({
@@ -75,7 +109,6 @@ class _AlertsScreenState extends State<AlertsScreen>
   }) async {
     if (_isFetching && !force) return;
     _isFetching = true;
-    final requestVersion = ++_requestVersion;
     if (showLoading && mounted) {
       setState(() {
         _isLoading = true;
@@ -84,65 +117,257 @@ class _AlertsScreenState extends State<AlertsScreen>
     }
 
     try {
-      final alerts = await AlertService.instance.listAlerts(
-        status: _statusFilter,
+      final alerts = await _alertService.listAlerts();
+      if (!mounted) return;
+      setState(() {
+        _alerts = alerts.where((alert) => alert.source == 'system').toList();
+        _errorMessage = null;
+        _isLoading = false;
+      });
+      _focusInitialAlert(_alerts!);
+      _markVisibleAlertsAsNotified();
+      widget.onUnreadCountChanged?.call(
+        alerts
+            .where((alert) => alert.source == 'system' && !alert.isRead)
+            .length,
       );
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() {
-          _alerts = alerts;
-          _errorMessage = null;
-        });
-      }
     } on ApiException catch (error) {
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() => _errorMessage = error.message);
-      }
+      if (mounted) setState(() => _errorMessage = error.message);
     } on FormatException {
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() => _errorMessage = AppStrings.alertLoadError);
-      }
+      if (mounted) setState(() => _errorMessage = AppStrings.alertLoadError);
     } finally {
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() {
-          _isLoading = false;
-          _isFetching = false;
-        });
+      _isFetching = false;
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _focusInitialAlert(List<Alert> alerts) {
+    final alertId = widget.initialAlertId;
+    if (alertId == null || _handledInitialAlertId == alertId) return;
+    Alert? target;
+    for (final alert in alerts) {
+      if (alert.id == alertId) {
+        target = alert;
+        break;
+      }
+    }
+    if (target == null) {
+      debugPrint('[MI_NOTIF] Alert target found=false alertId=$alertId');
+      _handledInitialAlertId = alertId;
+      widget.onInitialAlertHandled?.call(alertId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(AppStrings.alertNotFound)),
+        );
+      }
+      return;
+    }
+    debugPrint('[MI_NOTIF] Alert target found=true alertId=$alertId');
+    _handledInitialAlertId = alertId;
+    _statusFilter = null;
+    widget.onInitialAlertHandled?.call(alertId);
+    if (!target.isRead) unawaited(_markRead(target));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final targetContext = _alertKeys[alertId]?.currentContext;
+      if (targetContext != null) {
+        Scrollable.ensureVisible(
+          targetContext,
+          duration: const Duration(milliseconds: 250),
+          alignment: 0.15,
+        );
+      }
+    });
+  }
+
+  void _markVisibleAlertsAsNotified() {
+    if (!widget.isActive ||
+        defaultTargetPlatform != TargetPlatform.android ||
+        !_isForeground) {
+      return;
+    }
+    final ids = (_alerts ?? [])
+        .where(
+          (alert) => _statusFilter == null || alert.status == _statusFilter,
+        )
+        .map((alert) => alert.id)
+        .toList(growable: false);
+    if (ids.isEmpty) return;
+    unawaited(_markAsNotified(ids));
+  }
+
+  Future<void> _markAsNotified(List<String> ids) async {
+    try {
+      await CanauxNatifs.marquerCommeNotifie(ids);
+    } on PlatformException catch (error) {
+      FlutterError.reportError(FlutterErrorDetails(exception: error));
+    } on MissingPluginException catch (error) {
+      FlutterError.reportError(FlutterErrorDetails(exception: error));
+    }
+  }
+
+  Future<void> _markRead(Alert alert) async {
+    try {
+      await _alertService.markRead(alert.id);
+      await _loadAlerts(force: true);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
       }
     }
   }
 
-  void _selectFilter(String? status) {
-    if (_statusFilter == status) return;
-    setState(() => _statusFilter = status);
-    _loadAlerts(showLoading: true, force: true);
+  Future<bool> _confirmDeleteAlert() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text(AppStrings.deleteAlertTitle),
+          content: const Text(AppStrings.deleteAlertConfirmation),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text(AppStrings.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text(AppStrings.delete),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  Future<void> _deleteAlert(Alert alert) async {
+    if (!await _confirmDeleteAlert() || !mounted) return;
+    final previousAlerts = _alerts;
+    setState(() {
+      _alerts =
+          _alerts?.where((item) => item.id != alert.id).toList(growable: false);
+    });
+    widget.onUnreadCountChanged?.call(
+      (_alerts ?? [])
+          .where((item) => item.source == 'system' && !item.isRead)
+          .length,
+    );
+    try {
+      await _alertService.deleteAlert(alert.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppStrings.alertDeleted)),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (error.statusCode == 404) {
+        widget.onUnreadCountChanged?.call(
+          (_alerts ?? [])
+              .where((item) => item.source == 'system' && !item.isRead)
+              .length,
+        );
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(AppStrings.alertDeletedOrMissing),
+          ),
+        );
+        return;
+      }
+      setState(() => _alerts = previousAlerts);
+      widget.onUnreadCountChanged?.call(
+        (previousAlerts ?? [])
+            .where((item) => item.source == 'system' && !item.isRead)
+            .length,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+          action: SnackBarAction(
+            label: AppStrings.retry,
+            onPressed: () => unawaited(_deleteAlert(alert)),
+          ),
+        ),
+      );
+    } on FormatException {
+      if (!mounted) return;
+      setState(() => _alerts = previousAlerts);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(AppStrings.invalidResponse),
+          action: SnackBarAction(
+            label: AppStrings.retry,
+            onPressed: () => unawaited(_deleteAlert(alert)),
+          ),
+        ),
+      );
+    }
   }
 
-  String _severityLabel(AlertSeverity severity) => switch (severity) {
-        AlertSeverity.info => AppStrings.alertSeverityInfo,
-        AlertSeverity.warning => AppStrings.alertSeverityWarning,
-        AlertSeverity.critical => AppStrings.alertSeverityCritical,
-      };
+  Future<void> _sendTask(Alert alert, String taskType) async {
+    if (_sendingTaskIds.contains(alert.id)) return;
+    setState(() => _sendingTaskIds.add(alert.id));
+    try {
+      final eleveurs = await EleveurService.instance.listEleveurs();
+      final cows = await CowService.instance.listProfiles();
+      if (!mounted) return;
+      if (eleveurs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun éleveur disponible.')),
+        );
+        return;
+      }
+      final draft = await showDialog<TaskFormDraft>(
+        context: context,
+        builder: (_) => TaskFormDialog(
+          eleveurs: eleveurs,
+          cows: cows,
+          initialCowId: alert.cowId,
+          initialTaskType: taskType,
+          initialEleveurId: _eleveurForCow(cows, alert.cowId),
+          alertId: alert.id,
+        ),
+      );
+      if (draft == null || !mounted) return;
+      await TaskService.instance.createTask(
+        eleveurId: draft.eleveurId,
+        title: draft.title,
+        description: draft.description,
+        cowId: draft.cowId ?? alert.cowId,
+        dueAt: draft.dueAt,
+        taskType: draft.taskType,
+        plan: draft.plan,
+        alertId: alert.id,
+      );
+      await _loadAlerts(force: true);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    } on FormatException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La réponse des tâches est invalide.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sendingTaskIds.remove(alert.id));
+    }
+  }
 
-  String _actionLabel(String action) => switch (action) {
-        'sell' => AppStrings.alertActionSell,
-        'vet' => AppStrings.alertActionVet,
-        'butcher' => AppStrings.alertActionButcher,
-        _ => action,
-      };
-
-  String _appetiteLabel(String appetiteClass) => switch (appetiteClass) {
-        'low' => AppStrings.alertAppetiteLow,
-        'normal' => AppStrings.alertAppetiteNormal,
-        'high' => AppStrings.alertAppetiteHigh,
-        _ => appetiteClass,
-      };
+  String? _eleveurForCow(List<Cow> cows, String? cowId) {
+    for (final cow in cows) {
+      if (cow.id == cowId) return cow.eleveurId;
+    }
+    return null;
+  }
 
   String _formatDate(DateTime dateTime) {
     final date = dateTime.toLocal();
-    final hour = date.hour.toString().padLeft(2, '0');
-    final minute = date.minute.toString().padLeft(2, '0');
     return '${date.day.toString().padLeft(2, '0')}/'
-        '${date.month.toString().padLeft(2, '0')}/${date.year} $hour:$minute';
+        '${date.month.toString().padLeft(2, '0')}/${date.year} '
+        '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _filterChip(String? status, String label) => Padding(
@@ -151,185 +376,228 @@ class _AlertsScreenState extends State<AlertsScreen>
           label: Text(label),
           selected: _statusFilter == status,
           showCheckmark: false,
-          selectedColor: AppTheme.primary,
-          backgroundColor: Colors.white,
-          side: BorderSide(
-            color: _statusFilter == status ? AppTheme.primary : AppTheme.line,
-          ),
-          labelStyle: TextStyle(
-            fontWeight: FontWeight.w700,
-            color: _statusFilter == status ? Colors.white : AppTheme.textDark,
-          ),
-          onSelected: (_) => _selectFilter(status),
+          onSelected: (_) {
+            setState(() => _statusFilter = status);
+            _markVisibleAlertsAsNotified();
+          },
         ),
       );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text(AppStrings.alertsTitle)),
-        body: RefreshIndicator(
-          onRefresh: () => _loadAlerts(force: true),
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-            children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _filterChip(null, AppStrings.alertFilterAll),
-                    _filterChip('unread', AppStrings.alertFilterUnread),
-                    _filterChip('read', AppStrings.alertFilterRead),
-                  ],
-                ),
+  Widget build(BuildContext context) {
+    final alerts = (_alerts ?? []).where((alert) {
+      return _statusFilter == null || alert.status == _statusFilter;
+    }).toList(growable: false);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text(AppStrings.alertsTitle)),
+      body: RefreshIndicator(
+        onRefresh: () => _loadAlerts(),
+        child: ListView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(
+            AppTheme.pageSpacing,
+            4,
+            AppTheme.pageSpacing,
+            24,
+          ),
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _filterChip(null, AppStrings.alertFilterAll),
+                  _filterChip('unread', AppStrings.alertFilterUnread),
+                  _filterChip('read', AppStrings.alertFilterRead),
+                ],
               ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 8),
-                Text(
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 8),
+              AppCard(
+                color: AppTheme.amberSoft,
+                child: Text(
                   _errorMessage!,
                   style: const TextStyle(color: AppTheme.warn),
                 ),
-                if (_alerts == null)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton(
-                      onPressed: () =>
-                          _loadAlerts(showLoading: true, force: true),
-                      child: const Text(AppStrings.retry),
-                    ),
-                  ),
-              ],
-              if (_isLoading && _alerts == null)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_alerts?.isEmpty ?? false)
-                const Padding(
-                  padding: EdgeInsets.all(36),
-                  child: Center(
-                    child: Text(
-                      AppStrings.alertEmpty,
-                      style: TextStyle(color: AppTheme.textGrey),
-                    ),
-                  ),
-                )
-              else
-                for (final alert in _alerts ?? []) ...[
-                  _AlertCard(
-                    alert: alert,
-                    severityLabel: _severityLabel(alert.severity),
-                    actionLabel: alert.action == null
-                        ? null
-                        : _actionLabel(alert.action!),
-                    appetiteLabel: alert.appetiteClass == null
-                        ? null
-                        : _appetiteLabel(alert.appetiteClass!),
-                    formatDate: _formatDate,
-                  ),
-                  const SizedBox(height: 10),
-                ],
+              ),
             ],
-          ),
+            if (_isLoading && _alerts == null)
+              const AppLoadingState(height: 180)
+            else if (alerts.isEmpty)
+              const AppEmptyState(
+                message: AppStrings.alertEmpty,
+                icon: AppIcons.alert,
+              )
+            else
+              for (final alert in alerts) ...[
+                AlertCard(
+                  key: _alertKeys.putIfAbsent(alert.id, () => GlobalKey()),
+                  alert: alert,
+                  dateLabel: _formatDate(alert.createdAt),
+                  sendingTask: _sendingTaskIds.contains(alert.id),
+                  onSendTask: (taskType) => _sendTask(alert, taskType),
+                  onMarkRead: () => _markRead(alert),
+                  onDelete: () => _deleteAlert(alert),
+                ),
+                const SizedBox(height: 10),
+              ],
+          ],
         ),
-      );
+      ),
+    );
+  }
 }
 
-class _AlertCard extends StatelessWidget {
-  const _AlertCard({
+class AlertCard extends StatelessWidget {
+  const AlertCard({
+    super.key,
     required this.alert,
-    required this.severityLabel,
-    required this.actionLabel,
-    required this.appetiteLabel,
-    required this.formatDate,
+    required this.dateLabel,
+    required this.sendingTask,
+    required this.onSendTask,
+    required this.onMarkRead,
+    required this.onDelete,
   });
 
   final Alert alert;
-  final String severityLabel;
-  final String? actionLabel;
-  final String? appetiteLabel;
-  final String Function(DateTime) formatDate;
+  final String dateLabel;
+  final bool sendingTask;
+  final ValueChanged<String> onSendTask;
+  final VoidCallback onMarkRead;
+  final VoidCallback onDelete;
 
-  String _formatPercentage(double value) =>
-      value % 1 == 0 ? value.toInt().toString() : value.toString();
+  AppetiteTrend get _appetiteTrend =>
+      AppetiteTrendStyle.parse(alert.appetiteClass) ??
+      (alert.type == 'appetite_high'
+          ? AppetiteTrend.increasing
+          : AppetiteTrend.decreasing);
+  Color get _color =>
+      alert.isTaskCompleted ? AppTheme.primary : _appetiteTrend.color;
+  Color get _lightColor =>
+      alert.isTaskCompleted ? AppTheme.primarySoft : _appetiteTrend.lightColor;
+  IconData get _icon =>
+      alert.isTaskCompleted ? AppIcons.task : _appetiteTrend.icon;
+
+  String get _kindLabel =>
+      alert.isTaskCompleted ? 'Tâche terminée' : _appetiteTrend.labelFr;
 
   @override
   Widget build(BuildContext context) => AppCard(
-        color: alert.isRead ? Colors.white : alert.severity.color.withAlpha(24),
+        color: alert.isRead ? AppTheme.surface : _lightColor,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                Icon(_icon, color: _color),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    alert.message,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textDark,
+                    _kindLabel,
+                    style: TextStyle(
+                      color: _color,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Pill(severityLabel, alert.severity.color),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
                 Pill(
                   alert.isRead
                       ? AppStrings.alertStatusRead
                       : AppStrings.alertStatusUnread,
                   alert.isRead ? AppTheme.textGrey : AppTheme.primary,
                 ),
-                if (actionLabel != null) Pill(actionLabel!, AppTheme.accent),
-                Pill('${AppStrings.alertTypeLabel}: ${alert.type}',
-                    AppTheme.textGrey),
+                IconButton(
+                  tooltip: AppStrings.delete,
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
               ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              alert.message,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textDark,
+              ),
             ),
             if (alert.cowId != null) ...[
               const SizedBox(height: 8),
-              Text(
-                '${AppStrings.alertCowLabel}: ${alert.cowId}',
-                style: const TextStyle(color: AppTheme.textGrey),
-              ),
+              Text('${AppStrings.alertCowLabel}: ${alert.cowId}'),
             ],
-            if (appetiteLabel != null) ...[
+            if (alert.completedWeightKg != null) ...[
               const SizedBox(height: 8),
               Text(
-                '${AppStrings.alertAppetiteClassLabel}: $appetiteLabel',
-                style: const TextStyle(
-                  color: AppTheme.textDark,
-                  fontWeight: FontWeight.w600,
-                ),
+                alert.previousWeightKg == null
+                    ? 'Poids relevé : ${alert.completedWeightKg} kg'
+                    : 'Ancien poids : ${alert.previousWeightKg} kg → '
+                        '${alert.completedWeightKg} kg',
               ),
             ],
-            if (alert.appetitePct?.isNotEmpty ?? false) ...[
-              const SizedBox(height: 4),
-              Text(
-                '${AppStrings.alertAppetitePercentagesLabel}: '
-                '${alert.appetitePct!.entries.map((entry) => '${entry.key}: ${_formatPercentage(entry.value)}%').join(' · ')}',
-                style: const TextStyle(color: AppTheme.textGrey),
-              ),
+            if (alert.completionNote?.isNotEmpty ?? false) ...[
+              const SizedBox(height: 8),
+              Text('Note : ${alert.completionNote}'),
             ],
             const SizedBox(height: 8),
             Text(
-              '${AppStrings.alertCreatedAtLabel}: ${formatDate(alert.createdAt)}',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.textGrey,
-              ),
+              '${AppStrings.alertCreatedAtLabel}: $dateLabel',
+              style: const TextStyle(fontSize: 12, color: AppTheme.textGrey),
             ),
-            if (alert.readAt != null)
-              Text(
-                '${AppStrings.alertReadAtLabel}: ${formatDate(alert.readAt!)}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.textGrey,
+            if (alert.isAppetite && alert.handled)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Pill('Tâche envoyée', AppTheme.primary),
+              )
+            else if (alert.isAppetite)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed:
+                          sendingTask ? null : () => onSendTask('check_weight'),
+                      icon: sendingTask
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppTheme.onPrimary,
+                              ),
+                            )
+                          : const Icon(AppIcons.weight),
+                      label: const Text('Peser'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: sendingTask ? null : () => onSendTask('vet'),
+                      icon: const Icon(AppIcons.vet),
+                      label: const Text('Vétérinaire'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: sendingTask ? null : () => onSendTask('sell'),
+                      icon: const Icon(AppIcons.sell),
+                      label: const Text('Vendre'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed:
+                          sendingTask ? null : () => onSendTask('butcher'),
+                      icon: const Icon(AppIcons.butcher),
+                      label: const Text('Boucher'),
+                    ),
+                  ],
+                ),
+              ),
+            if (!alert.isRead)
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton(
+                  onPressed: onMarkRead,
+                  child: const Text('Marquer comme lu'),
                 ),
               ),
           ],

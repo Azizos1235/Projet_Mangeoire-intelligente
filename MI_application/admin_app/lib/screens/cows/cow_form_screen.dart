@@ -5,12 +5,20 @@ import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/cow_service.dart';
+import '../../services/nfc_service.dart';
+import '../../screens/scan/nfc_scan_screen.dart';
 
 class CowFormScreen extends StatefulWidget {
-  const CowFormScreen({super.key, this.cow, this.service});
+  const CowFormScreen({
+    super.key,
+    required this.cow,
+    this.service,
+    this.nfcService,
+  });
 
-  final Cow? cow;
+  final Cow cow;
   final CowService? service;
+  final NfcService? nfcService;
 
   @override
   State<CowFormScreen> createState() => _CowFormScreenState();
@@ -19,7 +27,7 @@ class CowFormScreen extends StatefulWidget {
 class _CowFormScreenState extends State<CowFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late final CowService _service;
-  late final TextEditingController _idController;
+  late final NfcService _nfcService;
   late final TextEditingController _weightController;
   late final TextEditingController _nfcController;
   late CowType _type;
@@ -29,26 +37,22 @@ class _CowFormScreenState extends State<CowFormScreen> {
   bool _saving = false;
   String? _error;
 
-  bool get _isEditing => widget.cow != null;
-
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? CowService.instance;
+    _nfcService = widget.nfcService ?? NfcService.instance;
     final cow = widget.cow;
-    _idController = TextEditingController(text: cow?.id ?? '');
-    _weightController =
-        TextEditingController(text: cow?.weightKg.toString() ?? '');
-    _nfcController = TextEditingController(text: cow?.nfcUid ?? '');
-    _type = cow?.type ?? CowType.dairy;
+    _weightController = TextEditingController(text: cow.weightKg.toString());
+    _nfcController = TextEditingController(text: cow.nfcUid ?? '');
+    _type = cow.type;
     final breeds = breedsByType[_type]!;
-    _breed = breeds.contains(cow?.breed) ? cow!.breed : breeds.first;
-    _birthDate = cow?.birthDate;
+    _breed = breeds.contains(cow.breed) ? cow.breed : breeds.first;
+    _birthDate = cow.birthDate;
   }
 
   @override
   void dispose() {
-    _idController.dispose();
     _weightController.dispose();
     _nfcController.dispose();
     super.dispose();
@@ -65,12 +69,6 @@ class _CowFormScreenState extends State<CowFormScreen> {
       lastDate: DateUtils.dateOnly(now),
     );
     if (picked != null) setState(() => _birthDate = picked);
-  }
-
-  String? _validateId(String? value) {
-    if (_isEditing) return null;
-    if (value == null || value.trim().isEmpty) return AppStrings.cowIdRequired;
-    return null;
   }
 
   String? _validateWeight(String? value) {
@@ -118,26 +116,15 @@ class _CowFormScreenState extends State<CowFormScreen> {
     });
 
     try {
-      if (_isEditing) {
-        await _service.updateProfile(
-          id: widget.cow!.id,
-          birthDate: birthDate,
-          weightKg: weight,
-          type: _type,
-          breed: _breed,
-          clearNfcUid: _clearNfcUid,
-          nfcUid: cleanedNfc.isEmpty ? null : cleanedNfc,
-        );
-      } else {
-        await _service.createProfile(
-          id: _idController.text.trim().toUpperCase(),
-          birthDate: birthDate,
-          weightKg: weight,
-          type: _type,
-          breed: _breed,
-          nfcUid: cleanedNfc.isEmpty ? null : cleanedNfc,
-        );
-      }
+      await _service.updateProfile(
+        id: widget.cow.id,
+        birthDate: birthDate,
+        weightKg: weight,
+        type: _type,
+        breed: _breed,
+        clearNfcUid: _clearNfcUid,
+        nfcUid: cleanedNfc.isEmpty ? null : cleanedNfc,
+      );
       if (mounted) Navigator.pop(context, true);
     } on CowConflictException {
       if (mounted) setState(() => _error = AppStrings.cowConflict);
@@ -153,30 +140,45 @@ class _CowFormScreenState extends State<CowFormScreen> {
     }
   }
 
+  Future<void> _scanNfc() async {
+    final result = await Navigator.push<NfcScanResult?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NfcScanScreen(
+          mode: NfcScanMode.view,
+          service: _nfcService,
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    try {
+      setState(() {
+        _nfcController.text = NfcService.normalizeUid(result.uid);
+        _clearNfcUid = false;
+      });
+    } on FormatException {
+      setState(() => _error = AppStrings.nfcReadFailed);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: Text(_isEditing ? AppStrings.editCow : AppStrings.addCow),
+          title: const Text(AppStrings.editCow),
         ),
         body: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+            padding: const EdgeInsets.fromLTRB(
+              AppTheme.pageSpacing,
+              8,
+              AppTheme.pageSpacing,
+              28,
+            ),
             children: [
-              if (!_isEditing) ...[
-                TextFormField(
-                  controller: _idController,
-                  textCapitalization: TextCapitalization.characters,
-                  decoration: const InputDecoration(
-                    labelText: AppStrings.cowIdLabel,
-                  ),
-                  validator: _validateId,
-                ),
-                const SizedBox(height: 14),
-              ],
               InkWell(
                 onTap: _saving ? null : _selectBirthDate,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(AppTheme.fieldRadius),
                 child: InputDecorator(
                   decoration: const InputDecoration(
                     labelText: AppStrings.cowBirthDateLabel,
@@ -253,7 +255,13 @@ class _CowFormScreenState extends State<CowFormScreen> {
                   if (_clearNfcUid) setState(() => _clearNfcUid = false);
                 },
               ),
-              if (_isEditing && widget.cow!.nfcUid != null) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _saving ? null : _scanNfc,
+                icon: const Icon(Icons.nfc_rounded),
+                label: const Text(AppStrings.cowNfcScan),
+              ),
+              if (widget.cow.nfcUid != null) ...[
                 TextButton(
                   onPressed: _saving
                       ? null
@@ -280,7 +288,7 @@ class _CowFormScreenState extends State<CowFormScreen> {
                         height: 22,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: AppTheme.onPrimary,
                         ),
                       )
                     : const Text(AppStrings.cowSave),

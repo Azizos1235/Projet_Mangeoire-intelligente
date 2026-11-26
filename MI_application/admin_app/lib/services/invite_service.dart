@@ -1,5 +1,42 @@
 import 'api_client.dart';
 
+class LoginQr {
+  const LoginQr({
+    required this.eleveurId,
+    required this.eleveurName,
+    required this.qrPayload,
+    required this.expiresAt,
+  });
+
+  final String eleveurId;
+  final String? eleveurName;
+  final String qrPayload;
+  final DateTime expiresAt;
+
+  factory LoginQr.fromJson(Map<String, dynamic> json) {
+    final eleveurId = json['eleveur_id'];
+    final eleveurName = json['eleveur_name'];
+    final qrPayload = json['qr_payload'];
+    final expiresAt = json['expires_at'];
+    if (eleveurId is! String ||
+        (eleveurName != null && eleveurName is! String) ||
+        qrPayload is! String ||
+        expiresAt is! String) {
+      throw const FormatException('Invalid login QR response.');
+    }
+    final parsedExpiry = DateTime.tryParse(expiresAt);
+    if (parsedExpiry == null) {
+      throw const FormatException('Invalid login QR expiry.');
+    }
+    return LoginQr(
+      eleveurId: eleveurId,
+      eleveurName: eleveurName as String?,
+      qrPayload: qrPayload,
+      expiresAt: parsedExpiry,
+    );
+  }
+}
+
 class Invite {
   const Invite({
     required this.id,
@@ -84,6 +121,13 @@ class InviteService {
   InviteService._();
 
   static final InviteService instance = InviteService._();
+
+  Future<LoginQr> createLoginQr(String eleveurId) async {
+    final response = await ApiClient.instance.post<Map<String, dynamic>>(
+      '/eleveurs/${Uri.encodeComponent(eleveurId)}/qr',
+    );
+    return LoginQr.fromJson(response);
+  }
 
   Future<Invite> createInvite() async {
     final response =

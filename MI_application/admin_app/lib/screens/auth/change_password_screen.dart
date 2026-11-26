@@ -4,6 +4,7 @@ import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../../widgets/widgets.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({
@@ -116,41 +117,48 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           appBar: AppBar(title: const Text(AppStrings.changePassword)),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+              padding: const EdgeInsets.fromLTRB(
+                AppTheme.pageSpacing,
+                4,
+                AppTheme.pageSpacing,
+                28,
+              ),
               children: [
-                Form(
-                  key: _formKey,
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        controller: _currentPasswordController,
-                        obscureText: _obscurePasswords,
-                        textInputAction: TextInputAction.next,
-                        validator: _validateCurrentPassword,
-                        decoration: _passwordDecoration(
-                            AppStrings.currentPasswordLabel),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _newPasswordController,
-                        obscureText: _obscurePasswords,
-                        textInputAction: TextInputAction.next,
-                        validator: _validateNewPassword,
-                        decoration:
-                            _passwordDecoration(AppStrings.newPasswordLabel),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _confirmationController,
-                        obscureText: _obscurePasswords,
-                        textInputAction: TextInputAction.done,
-                        onFieldSubmitted: (_) => _submit(),
-                        validator: _validateConfirmation,
-                        decoration: _passwordDecoration(
-                          AppStrings.passwordConfirmationLabel,
+                AppCard(
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _currentPasswordController,
+                          obscureText: _obscurePasswords,
+                          textInputAction: TextInputAction.next,
+                          validator: _validateCurrentPassword,
+                          decoration: _passwordDecoration(
+                              AppStrings.currentPasswordLabel),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _newPasswordController,
+                          obscureText: _obscurePasswords,
+                          textInputAction: TextInputAction.next,
+                          validator: _validateNewPassword,
+                          decoration:
+                              _passwordDecoration(AppStrings.newPasswordLabel),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _confirmationController,
+                          obscureText: _obscurePasswords,
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _submit(),
+                          validator: _validateConfirmation,
+                          decoration: _passwordDecoration(
+                            AppStrings.passwordConfirmationLabel,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 if (_errorMessage != null) ...[
@@ -169,7 +177,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: AppTheme.onPrimary,
                           ),
                         )
                       : const Text(AppStrings.changePassword),

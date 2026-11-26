@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/theme.dart';
 import '../../services/api_client.dart';
 import '../../services/invite_service.dart';
+import '../../widgets/async_state.dart';
 import '../../widgets/widgets.dart';
 
 class InviteScreen extends StatefulWidget {
@@ -120,18 +121,15 @@ class _InviteScreenState extends State<InviteScreen> {
 
   String _countdown(DateTime expiresAt) {
     final remaining = expiresAt.difference(DateTime.now());
-    if (remaining <= Duration.zero) return 'Expired';
-    final hours = remaining.inHours;
-    final minutes = remaining.inMinutes.remainder(60);
-    final seconds = remaining.inSeconds.remainder(60);
-    final hh = hours.toString().padLeft(2, '0');
-    final mm = minutes.toString().padLeft(2, '0');
-    final ss = seconds.toString().padLeft(2, '0');
-    return '$hh:$mm:$ss';
+    if (remaining <= Duration.zero) return '00:00';
+    final minutes = remaining.inMinutes.toString().padLeft(2, '0');
+    final seconds =
+        remaining.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   Color _statusColor(String status) => switch (status) {
-        'active' => AppTheme.accent,
+        'active' => AppTheme.primary,
         'used' => AppTheme.textGrey,
         'expired' => AppTheme.warn,
         _ => AppTheme.amber,
@@ -146,13 +144,15 @@ class _InviteScreenState extends State<InviteScreen> {
         onRefresh: _loadInvites,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+          padding: const EdgeInsets.fromLTRB(
+            AppTheme.pageSpacing,
+            4,
+            AppTheme.pageSpacing,
+            32,
+          ),
           children: [
             if (_isInitialLoading && currentInvite == null)
-              const Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const AppLoadingState(height: 180)
             else if (currentInvite != null) ...[
               AppCard(
                 padding: const EdgeInsets.all(20),
@@ -178,23 +178,33 @@ class _InviteScreenState extends State<InviteScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    QrImageView(
-                      data: currentInvite.qrPayload,
-                      version: QrVersions.auto,
-                      size: 220,
-                      backgroundColor: Colors.white,
-                      eyeStyle: const QrEyeStyle(
-                        eyeShape: QrEyeShape.square,
-                        color: AppTheme.primary,
+                    if (currentInvite.expiresAt.isAfter(DateTime.now()))
+                      QrImageView(
+                        data: currentInvite.qrPayload,
+                        version: QrVersions.auto,
+                        size: 220,
+                        backgroundColor: AppTheme.surface,
+                        eyeStyle: const QrEyeStyle(
+                          eyeShape: QrEyeShape.square,
+                          color: AppTheme.primary,
+                        ),
+                        dataModuleStyle: const QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                          color: AppTheme.primary,
+                        ),
+                      )
+                    else
+                      const Text(
+                        'Expired',
+                        style: TextStyle(
+                          color: AppTheme.warn,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                      dataModuleStyle: const QrDataModuleStyle(
-                        dataModuleShape: QrDataModuleShape.square,
-                        color: AppTheme.primary,
-                      ),
-                    ),
                     const SizedBox(height: 14),
                     Text(
-                      currentInvite.expiresAt.isBefore(DateTime.now())
+                      !currentInvite.expiresAt.isAfter(DateTime.now())
                           ? 'Expired'
                           : 'Expires in ${_countdown(currentInvite.expiresAt)}',
                       style: const TextStyle(
@@ -220,10 +230,14 @@ class _InviteScreenState extends State<InviteScreen> {
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: AppTheme.onPrimary,
                         ),
                       )
-                    : const Text('New invitation'),
+                    : Text(
+                        !currentInvite.expiresAt.isAfter(DateTime.now())
+                            ? 'Generate new QR'
+                            : 'New invitation',
+                      ),
               ),
             ] else ...[
               if (_currentInviteError != null)
@@ -242,10 +256,10 @@ class _InviteScreenState extends State<InviteScreen> {
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: AppTheme.onPrimary,
                         ),
                       )
-                    : const Text('New invitation'),
+                    : const Text('Nouvelle invitation'),
               ),
             ],
             const SizedBox(height: 24),
@@ -267,16 +281,11 @@ class _InviteScreenState extends State<InviteScreen> {
                 ),
               ),
             if (_isLoadingInvites && _invites.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const AppLoadingState(height: 100)
             else if (_invites.isEmpty && _inviteListError == null)
-              const AppCard(
-                child: Text(
-                  'No invitations yet.',
-                  style: TextStyle(color: AppTheme.textGrey),
-                ),
+              const AppEmptyState(
+                message: 'No invitations yet.',
+                icon: Icons.qr_code_2_rounded,
               ),
             if (_revokeError != null)
               Padding(
@@ -334,7 +343,7 @@ class _InviteScreenState extends State<InviteScreen> {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Text('Revoke'),
+                              : const Text('Révoquer'),
                         ),
                       ),
                     ],

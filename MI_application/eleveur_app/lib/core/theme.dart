@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 class AppTheme {
   static const primary = Color(0xFF2E7D32);
   static const primarySoft = Color(0xFFE5F2E6);
+  static const appetiteIncreasing = Color(0xFF2F80ED);
+  static const appetiteIncreasingSoft = Color(0xFFEAF2FF);
+  static const appetiteDecreasing = Color(0xFFE5484D);
+  static const appetiteDecreasingSoft = Color(0xFFFFECEC);
+  static const appetiteStable = Color(0xFF2E7D32);
+  static const appetiteStableSoft = Color(0xFFE8F5E9);
   static const background = Color(0xFFF5F7F2);
   static const textDark = Color(0xFF1F2A24);
   static const textGrey = Color(0xFF6E7B73);
-  static const alertInfo = Color(0xFF1E88E5);
-  static const alertWarning = Color(0xFFF9A825);
-  static const alertCritical = Color(0xFFD84315);
   static const error = Color(0xFFB3261E);
   static const border = Color(0xFFDDE5DF);
   static const disabledSurface = Color(0xFFE0E0E0);
@@ -56,4 +59,54 @@ class AppTheme {
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(color: c, width: w),
       );
+}
+
+enum AppetiteTrend { increasing, decreasing, stable }
+
+extension AppetiteTrendStyle on AppetiteTrend {
+  Color get color => switch (this) {
+        AppetiteTrend.increasing => AppTheme.appetiteIncreasing,
+        AppetiteTrend.decreasing => AppTheme.appetiteDecreasing,
+        AppetiteTrend.stable => AppTheme.appetiteStable,
+      };
+
+  Color get lightColor => switch (this) {
+        AppetiteTrend.increasing => AppTheme.appetiteIncreasingSoft,
+        AppetiteTrend.decreasing => AppTheme.appetiteDecreasingSoft,
+        AppetiteTrend.stable => AppTheme.appetiteStableSoft,
+      };
+
+  IconData get icon => switch (this) {
+        AppetiteTrend.increasing => Icons.trending_up_rounded,
+        AppetiteTrend.decreasing => Icons.trending_down_rounded,
+        AppetiteTrend.stable => Icons.trending_flat_rounded,
+      };
+
+  String get labelFr => switch (this) {
+        AppetiteTrend.increasing => 'En hausse',
+        AppetiteTrend.decreasing => 'En baisse',
+        AppetiteTrend.stable => 'Stable',
+      };
+
+  String get labelAr => switch (this) {
+        AppetiteTrend.increasing => 'في ارتفاع',
+        AppetiteTrend.decreasing => 'في انخفاض',
+        AppetiteTrend.stable => 'مستقر',
+      };
+
+  static AppetiteTrend? parse(String? value) =>
+      switch (value?.trim().toLowerCase().replaceAll('-', '_')) {
+        'high' ||
+        'increasing' ||
+        'increased' ||
+        'increase' =>
+          AppetiteTrend.increasing,
+        'low' ||
+        'decreasing' ||
+        'decreased' ||
+        'decrease' =>
+          AppetiteTrend.decreasing,
+        'normal' || 'stable' || 'steady' => AppetiteTrend.stable,
+        _ => null,
+      };
 }

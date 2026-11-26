@@ -1,7 +1,15 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
+import 'core/config.dart';
+import 'core/navigation.dart';
 import 'core/strings.dart';
 import 'core/theme.dart';
+import 'native/canaux.dart';
 import 'screens/auth/change_password_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/subscription_expired_screen.dart';
@@ -9,9 +17,40 @@ import 'screens/shell.dart';
 import 'services/api_client.dart';
 import 'services/session.dart';
 
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+bool _loggedIgnoredNativeRoute = false;
 
-void main() => runApp(const AdminApp());
+Route<dynamic>? nativeNotificationFallbackRoute(
+  RouteSettings settings,
+  WidgetBuilder rootBuilder,
+) {
+  final normalizedName = settings.name?.toLowerCase();
+  if (normalizedName?.startsWith('native://') != true &&
+      normalizedName?.contains('notification') != true) {
+    return null;
+  }
+  if (!_loggedIgnoredNativeRoute) {
+    debugPrint('[MI_NOTIF] Ignored native route: ${settings.name}');
+    _loggedIgnoredNativeRoute = true;
+  }
+  return MaterialPageRoute<void>(
+    settings: const RouteSettings(name: '/'),
+    builder: rootBuilder,
+  );
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await CanauxNatifs.initializeNotificationActions();
+    } on PlatformException catch (error) {
+      FlutterError.reportError(FlutterErrorDetails(exception: error));
+    } on MissingPluginException catch (error) {
+      FlutterError.reportError(FlutterErrorDetails(exception: error));
+    }
+  }
+  runApp(const AdminApp());
+}
 
 class MyApp extends AdminApp {
   const MyApp({super.key}) : super();
@@ -31,7 +70,17 @@ class _AdminAppState extends State<AdminApp> {
   void initState() {
     super.initState();
     ApiClient.instance.onAuthError = _handleApiError;
+    Session.instance.tokenRevision.addListener(_onTokenRevisionChanged);
     _screenFuture = _resolveScreen();
+  }
+
+  void _onTokenRevisionChanged() {
+    final user = Session.instance.currentUser.value;
+    if (user != null) {
+      debugPrint(
+          '[MI_NOTIF] Session token updated; synchronizing native session');
+      unawaited(_configureNativeSession(user));
+    }
   }
 
   Widget _loginScreen({String? message}) => LoginScreen(
@@ -85,7 +134,34 @@ class _AdminAppState extends State<AdminApp> {
       return _subscriptionExpiredScreen();
     }
 
+    await _configureNativeSession(user);
     return Shell(onLogout: _logout);
+  }
+
+  Future<void> _configureNativeSession(Map<String, dynamic> user) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    final token = await Session.instance.readToken();
+    final userId = user['id']?.toString();
+    if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
+      return;
+    }
+    try {
+      await CanauxNatifs.setSession(
+        token: token,
+        baseUrl: API_BASE_URL,
+        role: 'admin',
+        userId: userId,
+        language: 'fr',
+      );
+      if (await CanauxNatifs.notificationsActivees()) {
+        await CanauxNatifs.verifierMaintenant();
+        await CanauxNatifs.planifier();
+      }
+    } on PlatformException catch (error) {
+      FlutterError.reportError(FlutterErrorDetails(exception: error));
+    } on MissingPluginException catch (error) {
+      FlutterError.reportError(FlutterErrorDetails(exception: error));
+    }
   }
 
   Future<Widget> _screenForStartupError(ApiException error) async {
@@ -180,8 +256,31 @@ class _AdminAppState extends State<AdminApp> {
   @override
   void dispose() {
     ApiClient.instance.onAuthError = null;
+    Session.instance.tokenRevision.removeListener(_onTokenRevisionChanged);
     super.dispose();
   }
+
+  Widget _buildSessionGate() => FutureBuilder<Widget>(
+        future: _screenFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.hasError) {
+            return _StartupErrorScreen(
+              message: AppStrings.startupError,
+              onRetry: _refreshScreen,
+            );
+          }
+          return snapshot.data ??
+              _StartupErrorScreen(
+                message: AppStrings.startupError,
+                onRetry: _refreshScreen,
+              );
+        },
+      );
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -189,27 +288,16 @@ class _AdminAppState extends State<AdminApp> {
         title: 'Smart Élevage',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.theme,
-        home: FutureBuilder<Widget>(
-          future: _screenFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (snapshot.hasError) {
-              return _StartupErrorScreen(
-                message: AppStrings.startupError,
-                onRetry: _refreshScreen,
-              );
-            }
-            return snapshot.data ??
-                _StartupErrorScreen(
-                  message: AppStrings.startupError,
-                  onRetry: _refreshScreen,
-                );
-          },
-        ),
+        locale: const Locale('fr', 'FR'),
+        supportedLocales: const [Locale('fr', 'FR')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: _buildSessionGate(),
+        onGenerateRoute: (settings) => nativeNotificationFallbackRoute(
+            settings, (_) => _buildSessionGate()),
       );
 }
 

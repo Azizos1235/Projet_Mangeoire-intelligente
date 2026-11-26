@@ -4,6 +4,7 @@ import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
+import '../../widgets/widgets.dart';
 
 class SubscriptionExpiredScreen extends StatefulWidget {
   const SubscriptionExpiredScreen({
@@ -146,22 +147,34 @@ class _SubscriptionExpiredScreenState extends State<SubscriptionExpiredScreen> {
           appBar: AppBar(title: const Text(AppStrings.subscriptionExpired)),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+              padding: const EdgeInsets.fromLTRB(
+                AppTheme.pageSpacing,
+                4,
+                AppTheme.pageSpacing,
+                28,
+              ),
               children: [
-                Text(
-                  '${AppStrings.renewalExpiryLabel}: ${_isLoading ? AppStrings.loading : _expirationText()}',
-                  style: const TextStyle(
-                    color: AppTheme.textDark,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                TextField(
-                  controller: _messageController,
-                  minLines: 2,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: AppStrings.renewalMessageLabel,
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${AppStrings.renewalExpiryLabel}: ${_isLoading ? AppStrings.loading : _expirationText()}',
+                        style: const TextStyle(
+                          color: AppTheme.textDark,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      TextField(
+                        controller: _messageController,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: AppStrings.renewalMessageLabel,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 if (_errorMessage != null) ...[
@@ -175,7 +188,7 @@ class _SubscriptionExpiredScreenState extends State<SubscriptionExpiredScreen> {
                   const SizedBox(height: 14),
                   Text(
                     _successMessage!,
-                    style: const TextStyle(color: AppTheme.accent),
+                    style: const TextStyle(color: AppTheme.primary),
                   ),
                 ],
                 const SizedBox(height: 18),
@@ -187,7 +200,7 @@ class _SubscriptionExpiredScreenState extends State<SubscriptionExpiredScreen> {
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: AppTheme.onPrimary,
                           ),
                         )
                       : const Text(AppStrings.requestRenewal),

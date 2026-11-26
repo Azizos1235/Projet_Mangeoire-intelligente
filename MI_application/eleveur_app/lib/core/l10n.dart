@@ -103,9 +103,9 @@ const _strings = <String, Map<String, String>>{
     'fr': "Une erreur est survenue. Réessayez.",
     'ar': "حدث خطأ. حاول مجددًا.",
   },
-  'prediction_unavailable': {
-    'fr': "La prédiction n'est pas disponible pour le moment.",
-    'ar': "التنبؤ غير متاح حاليًا.",
+  'appetite_data_unavailable': {
+    'fr': "Les données d’appétit ne sont pas disponibles pour le moment.",
+    'ar': "بيانات الشهية غير متاحة حاليًا.",
   },
   'retry': {'fr': "Réessayer", 'ar': "عاود"},
   'try_again': {'fr': "Réessayer", 'ar': "حاول مرة أخرى"},
@@ -235,6 +235,32 @@ const _strings = <String, Map<String, String>>{
     'ar': "الدعوة غير صالحة أو منتهية أو مستخدمة بالفعل.",
   },
   'registration_submit': {'fr': "Rejoindre", 'ar': "انضم"},
+  'name_entry_title': {'fr': "Vérification du nom", 'ar': "التحقق من الاسم"},
+  'name_entry_prompt': {
+    'fr': "Saisissez votre nom pour continuer.",
+    'ar': "أدخل اسمك للمتابعة.",
+  },
+  'continue': {'fr': "Continuer", 'ar': "متابعة"},
+  'qr_name_mismatch': {
+    'fr': "Le nom ne correspond pas au compte. Vérifiez-le et réessayez.",
+    'ar': "الاسم لا يطابق الحساب. تحقق منه وحاول مرة أخرى.",
+  },
+  'qr_expired': {
+    'fr': "QR code expiré, demandez-en un nouveau à votre administrateur.",
+    'ar': "انتهت صلاحية رمز QR، اطلب رمزًا جديدًا من المسؤول.",
+  },
+  'qr_used': {
+    'fr': "Ce QR code a déjà été utilisé.",
+    'ar': "تم استخدام رمز QR هذا من قبل.",
+  },
+  'qr_unknown': {
+    'fr': "QR code inconnu ou invalide. Demandez-en un nouveau.",
+    'ar': "رمز QR غير معروف أو غير صالح. اطلب رمزًا جديدًا.",
+  },
+  'qr_scanner_error': {
+    'fr': "Impossible de lire le QR code. Réessayez.",
+    'ar': "تعذرت قراءة رمز QR. حاول مرة أخرى.",
+  },
   'scan_prompt': {
     'fr': "Scannez le QR code d'invitation fourni par votre administrateur",
     'ar': "اسكاني رمز الدعوة اللي عطاهولك المسؤول",
@@ -250,27 +276,150 @@ const _strings = <String, Map<String, String>>{
   },
   'nav_home': {'fr': "Accueil", 'ar': "الرئيسية"},
   'nav_cows': {'fr': "Animaux", 'ar': "الحيوانات"},
-  'nav_alerts': {'fr': "Alertes", 'ar': "التنبيهات"},
+  'nav_tasks': {'fr': "Tâches", 'ar': "المهام"},
   'nav_nfc': {'fr': "NFC", 'ar': "NFC"},
   'feeding': {'fr': "Ration journalière", 'ar': "الماكلة اليومية"},
-  'alerts_title': {'fr': "Alertes", 'ar': "التنبيهات"},
-  'alert_action_sell': {'fr': "Vente", 'ar': "بيع"},
-  'alert_action_vet': {'fr': "Vétérinaire", 'ar': "طبيب بيطري"},
-  'alert_action_butcher': {'fr': "Abattage", 'ar': "ذبح"},
-  'alert_appetite': {'fr': "Appétit", 'ar': "الشهية"},
-  'appetite_low': {'fr': "Faible", 'ar': "منخفض"},
-  'appetite_normal': {'fr': "Normal", 'ar': "طبيعي"},
-  'appetite_high': {'fr': "Élevé", 'ar': "مرتفع"},
-  'mark_all': {'fr': "Tout lire", 'ar': "اقرا الكل"},
-  'f_all': {'fr': "Tout", 'ar': "الكل"},
-  'f_cows': {'fr': "Animaux", 'ar': "الحيوانات"},
-  'f_admin': {'fr': "Admin", 'ar': "المسؤول"},
-  'from_admin': {'fr': "Votre administrateur", 'ar': "المسؤول متاعك"},
-  'ago': {'fr': "il y a {t}", 'ar': "قبل {t}"},
-  'u_min': {'fr': "min", 'ar': "دقيقة"},
-  'u_h': {'fr': "h", 'ar': "س"},
-  'u_d': {'fr': "j", 'ar': "يوم"},
-  'no_notifs': {'fr': "Aucune alerte", 'ar': "ما فما حتى تنبيه"},
+  'tasks_title': {'fr': "Mes tâches", 'ar': "مهامي"},
+  'tasks_empty': {'fr': "Aucune tâche", 'ar': "ما فما حتى مهمة"},
+  'tasks_load_error': {
+    'fr': "Impossible de charger les tâches. Réessayez.",
+    'ar': "تعذّر تحميل المهام. عاود المحاولة.",
+  },
+  'tasks_retry': {'fr': "Réessayer", 'ar': "عاود المحاولة"},
+  'task_mark_done': {'fr': "Confirmer", 'ar': "تأكيد"},
+  'task_plan': {'fr': "Plan de la tâche", 'ar': "خطة المهمة"},
+  'task_type_sell': {'fr': "Vendre", 'ar': "البيع"},
+  'task_type_vet': {'fr': "Vétérinaire", 'ar': "الطبيب البيطري"},
+  'task_type_butcher': {'fr': "Boucher", 'ar': "الجزّار"},
+  'task_type_check_weight': {'fr': "Peser", 'ar': "إعادة الوزن"},
+  'task_type_custom': {'fr': "Personnalisée", 'ar': "مهمة مخصصة"},
+  'task_title_sell': {'fr': "Vendre la vache", 'ar': "بيع البقرة"},
+  'task_title_vet': {
+    'fr': "Emmener la vache chez le vétérinaire",
+    'ar': "أخذ البقرة إلى الطبيب البيطري",
+  },
+  'task_title_butcher': {
+    'fr': "Envoyer la vache à la boucherie",
+    'ar': "إرسال البقرة إلى الجزّار",
+  },
+  'task_title_check_weight': {
+    'fr': "Vérifier le poids de la vache",
+    'ar': "إعادة وزن البقرة",
+  },
+  'task_title_custom': {'fr': "Nouvelle tâche", 'ar': "مهمة جديدة"},
+  'task_plan_sell': {
+    'fr': "Préparer la vache pour la vente.\n"
+        "Vérifier son état et ses documents.\n"
+        "Informer l’administrateur une fois la vente effectuée.",
+    'ar': "حضّر البقرة للبيع.\n"
+        "تحقّق من حالتها ووثائقها.\n"
+        "أعلم المسؤول بعد إتمام البيع.",
+  },
+  'task_plan_vet': {
+    'fr': "Emmener la vache chez le vétérinaire.\n"
+        "Expliquer les symptômes ou le motif de consultation.\n"
+        "Suivre les recommandations du vétérinaire et faire un compte rendu.",
+    'ar': "خذ البقرة إلى الطبيب البيطري.\n"
+        "اشرح الأعراض أو سبب الاستشارة.\n"
+        "اتبع توصيات الطبيب وقدّم تقريرًا.",
+  },
+  'task_plan_butcher': {
+    'fr': "Organiser le transport de la vache à la boucherie.\n"
+        "Vérifier les documents nécessaires.\n"
+        "Informer l’administrateur une fois la démarche effectuée.",
+    'ar': "نظّم نقل البقرة إلى الجزّار.\n"
+        "تحقّق من الوثائق اللازمة.\n"
+        "أعلم المسؤول بعد إتمام الإجراء.",
+  },
+  'task_plan_check_weight': {
+    'fr': "Peser la vache.\n"
+        "Noter son poids.\n"
+        "Vérifier son état corporel.\n"
+        "Signaler toute anomalie.",
+    'ar': "زِن البقرة.\n"
+        "سجّل وزنها.\n"
+        "تحقّق من حالة جسمها.\n"
+        "أبلغ عن أي أمر غير طبيعي.",
+  },
+  'task_confirm': {'fr': "Confirmer", 'ar': "تأكيد"},
+  'task_confirm_title': {'fr': "Confirmer la tâche", 'ar': "تأكيد المهمة"},
+  'task_confirm_message': {
+    'fr': "Confirmez-vous que cette tâche est terminée ?",
+    'ar': "هل تؤكد إتمام هذه المهمة؟",
+  },
+  'task_weigh_cow': {
+    'fr': "Peser la vache",
+    'ar': "زِن البقرة",
+  },
+  'task_weight_banner': {
+    'fr': "Consignes de l’administrateur",
+    'ar': "تعليمات المسؤول",
+  },
+  'task_previous_weight': {
+    'fr': "Ancien poids",
+    'ar': "الوزن السابق",
+  },
+  'task_weight_unchanged_title': {
+    'fr': "Le poids est inchangé, confirmer ?",
+    'ar': "الوزن لم يتغيّر، هل تؤكد؟",
+  },
+  'task_weight_unchanged_message': {
+    'fr': "Confirmez-vous que le poids actuel est correct ?",
+    'ar': "هل تؤكد أن الوزن الحالي صحيح؟",
+  },
+  'task_weight_range_invalid': {
+    'fr': "Le poids doit être compris entre 30 et 1 000 kg.",
+    'ar': "يجب أن يكون الوزن بين 30 و1000 كغ.",
+  },
+  'task_profile_load_title': {
+    'fr': "Profil indisponible",
+    'ar': "الملف الشخصي غير متاح",
+  },
+  'task_profile_load_error': {
+    'fr': "Impossible de charger le profil de cette vache.",
+    'ar': "تعذّر تحميل الملف الشخصي لهذه البقرة.",
+  },
+  'task_fallback_confirm': {
+    'fr': "Confirmer la tâche sans modifier le profil",
+    'ar': "تأكيد المهمة دون تعديل الملف الشخصي",
+  },
+  'task_weight_saved_pending': {
+    'fr':
+        "Le poids est enregistré, mais la tâche reste à confirmer. Réessayez.",
+    'ar': "تم حفظ الوزن، لكن المهمة ما زالت غير مؤكدة. حاول مجددًا.",
+  },
+  'task_weight_optional': {
+    'fr': "Poids (kg), facultatif",
+    'ar': "الوزن (كغ)، اختياري",
+  },
+  'task_note_optional': {
+    'fr': "Note, facultative",
+    'ar': "ملاحظة، اختيارية",
+  },
+  'task_weight_invalid': {
+    'fr': "Saisissez un poids valide entre 0 et 1 500 kg.",
+    'ar': "أدخل وزنًا صالحًا بين 0 و1500 كغ.",
+  },
+  'task_completed_success': {
+    'fr': "Tâche confirmée. Votre administrateur a été informé.",
+    'ar': "تم تأكيد المهمة وإبلاغ المسؤول.",
+  },
+  'tasks_home_title': {
+    'fr': "Tâches à faire",
+    'ar': "المهام المطلوب إنجازها",
+  },
+  'tasks_home_empty': {
+    'fr': "Aucune tâche pour le moment",
+    'ar': "لا توجد مهام في الوقت الحالي",
+  },
+  'tasks_view_all': {'fr': "Voir tout", 'ar': "عرض الكل"},
+  'task_due_at': {'fr': "À faire avant", 'ar': "آخر أجل"},
+  'task_overdue': {'fr': "En retard depuis", 'ar': "فات أجلها منذ"},
+  'task_cow': {'fr': "Bovin", 'ar': "البقرة"},
+  'task_update_error': {
+    'fr': "Impossible de mettre à jour la tâche. Réessayez.",
+    'ar': "تعذّر تحديث المهمة. عاود المحاولة.",
+  },
   'got_it': {'fr': "Compris", 'ar': "فهمت"},
   'nfc_title': {'fr': "Scanner la boucle NFC", 'ar': "اسكاني بطاقة NFC"},
   'nfc_absent': {
@@ -328,6 +477,72 @@ const _strings = <String, Map<String, String>>{
     'ar': "خلّي التليفون ثابت وقت القراءة.",
   },
   'cancel': {'fr': "Annuler", 'ar': "إلغاء"},
+  'settings': {'fr': "Paramètres", 'ar': "الإعدادات"},
+  'notifications_title': {'fr': "Notifications", 'ar': "الإشعارات"},
+  'notifications_description': {
+    'fr': "Recevoir une notification pour les nouvelles tâches.",
+    'ar': "تلقي إشعار عند وصول مهام جديدة.",
+  },
+  'notifications_permission_title': {
+    'fr': "Activer les notifications",
+    'ar': "تفعيل الإشعارات",
+  },
+  'notifications_permission_description': {
+    'fr':
+        "Autorisez les notifications pour être averti des nouvelles tâches, même lorsque l’application est fermée.",
+    'ar':
+        "اسمح بالإشعارات لتلقي تنبيه عند وصول مهام جديدة، حتى عند إغلاق التطبيق.",
+  },
+  'notifications_enable': {'fr': "Activer", 'ar': "تفعيل"},
+  'notifications_later': {'fr': "Plus tard", 'ar': "لاحقًا"},
+  'notifications_permission_hint': {
+    'fr':
+        "Les notifications sont désactivées dans les paramètres du téléphone.",
+    'ar': "الإشعارات معطّلة في إعدادات الهاتف.",
+  },
+  'notifications_open_settings': {
+    'fr': "Paramètres",
+    'ar': "الإعدادات",
+  },
+  'notifications_check_now': {
+    'fr': "Vérifier maintenant",
+    'ar': "تحقّق الآن",
+  },
+  'notifications_error': {
+    'fr': "Impossible de mettre à jour les notifications.",
+    'ar': "تعذّر تحديث الإشعارات.",
+  },
+  'notifications_service_active': {
+    'fr': "Surveillance active",
+    'ar': "المراقبة مفعّلة",
+  },
+  'notifications_service_inactive': {
+    'fr': "La surveillance en arrière-plan est arrêtée.",
+    'ar': "المراقبة في الخلفية متوقفة.",
+  },
+  'notifications_background_title': {
+    'fr': "Autoriser l'exécution en arrière-plan",
+    'ar': "السماح بالعمل في الخلفية",
+  },
+  'notifications_background_description': {
+    'fr':
+        "Pour recevoir rapidement les tâches, autorisez l'activité en arrière-plan et le démarrage automatique dans les paramètres de batterie du téléphone.",
+    'ar':
+        "لتلقي المهام بسرعة، اسمح بالنشاط في الخلفية والتشغيل التلقائي من إعدادات بطارية الهاتف.",
+  },
+  'notifications_background_open': {
+    'fr': "Paramètres batterie",
+    'ar': "إعدادات البطارية",
+  },
+  'notifications_session_expired': {
+    'fr': "Reconnectez-vous pour recevoir les notifications.",
+    'ar': "أعد تسجيل الدخول لتلقي الإشعارات.",
+  },
+  'reconnect': {'fr': "Se reconnecter", 'ar': "إعادة تسجيل الدخول"},
+  'task_already_done': {
+    'fr': "Tâche déjà terminée",
+    'ar': "تم إكمال المهمة بالفعل",
+  },
 
   // ---------- Add cow screen (same names as the mock)
   'new_cow': {'fr': "Nouvelle vache", 'ar': "بقرة جديدة"},

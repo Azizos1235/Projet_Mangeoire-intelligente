@@ -1,9 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/app_icons.dart';
 import '../../core/appetite_analysis.dart';
 import '../../core/strings.dart';
 import '../../core/theme.dart';
@@ -11,8 +10,11 @@ import '../../models/cow_telemetry.dart';
 import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/cow_service.dart';
+import '../../services/eleveur_service.dart';
+import '../../services/task_service.dart';
 import '../../services/ws_service.dart';
-import '../../widgets/instruction_sheet.dart';
+import '../../widgets/async_state.dart';
+import '../../widgets/task_form_dialog.dart';
 import '../../widgets/widgets.dart';
 import 'cow_form_screen.dart';
 
@@ -39,8 +41,6 @@ class _CowDetailData {
     required this.currentAppetite,
     required this.realtime,
     required this.dispatch,
-    required this.prediction,
-    required this.predictionUnavailable,
   });
 
   final Cow cow;
@@ -55,15 +55,6 @@ class _CowDetailData {
   final CowAppetiteClass? currentAppetite;
   final List<RealtimeReading> realtime;
   final List<DispatchRecord> dispatch;
-  final Object? prediction;
-  final bool predictionUnavailable;
-}
-
-class _PredictionResult {
-  const _PredictionResult(this.value, this.unavailable);
-
-  final Object? value;
-  final bool unavailable;
 }
 
 class _CowDetailScreenState extends State<CowDetailScreen> {
@@ -119,17 +110,6 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
     });
   }
 
-  Future<_PredictionResult> _loadPrediction() async {
-    try {
-      return _PredictionResult(
-        await _service.predict(widget.cowId),
-        false,
-      );
-    } on PredictionUnavailableException {
-      return const _PredictionResult(null, true);
-    }
-  }
-
   Future<void> _refresh({bool showLoading = true}) async {
     if (showLoading && mounted) {
       setState(() {
@@ -146,7 +126,6 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
         _service.dailyDocuments(widget.cowId, limit: 366),
         _service.realtime(widget.cowId, limit: 10),
         _service.dispatch(widget.cowId, limit: 10),
-        _loadPrediction(),
       ]);
       final documents = results[2] as List<dynamic>;
       final index = AppetiteAnalysis.indexDaily(documents);
@@ -161,7 +140,6 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
           ? null
           : AppetiteAnalysis.probabilitiesOf(newestDocument);
       final currentAppetite = AppetiteAnalysis.appetiteOf(newestDocument);
-      final prediction = results[5] as _PredictionResult;
       if (!mounted) return;
       final realtime = results[3] as List<RealtimeReading>;
       if (!_live && realtime.isNotEmpty) {
@@ -181,8 +159,6 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
           currentAppetite: currentAppetite,
           realtime: realtime,
           dispatch: results[4] as List<DispatchRecord>,
-          prediction: prediction.value,
-          predictionUnavailable: prediction.unavailable,
         );
         _pickedDay = null;
         _dayRecord = null;
@@ -207,6 +183,56 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
     }
   }
 
+  Future<void> _sendTask(Cow cow, String taskType) async {
+    try {
+      final eleveurs = await EleveurService.instance.listEleveurs();
+      if (!mounted) return;
+      if (eleveurs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun éleveur disponible.')),
+        );
+        return;
+      }
+      final draft = await showDialog<TaskFormDraft>(
+        context: context,
+        builder: (_) => TaskFormDialog(
+          eleveurs: eleveurs,
+          cows: [cow],
+          initialCowId: cow.id,
+          initialEleveurId: cow.eleveurId,
+          initialTaskType: taskType,
+        ),
+      );
+      if (draft == null || !mounted) return;
+      await TaskService.instance.createTask(
+        eleveurId: draft.eleveurId,
+        title: draft.title,
+        description: draft.description,
+        cowId: draft.cowId ?? cow.id,
+        dueAt: draft.dueAt,
+        taskType: draft.taskType,
+        plan: draft.plan,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tâche envoyée à l’éleveur.')),
+        );
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    } on FormatException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La réponse des tâches est invalide.')),
+        );
+      }
+    }
+  }
+
   Future<void> _edit(Cow cow) async {
     final saved = await Navigator.push<bool>(
       context,
@@ -224,7 +250,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const Text(AppStrings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
@@ -254,10 +280,6 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
     }
   }
 
-  void _openAlert(Cow cow, String action) {
-    showInstructionSheet(context, cow: cow, presetAction: action);
-  }
-
   @override
   Widget build(BuildContext context) {
     final data = _data;
@@ -276,6 +298,44 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
               tooltip: AppStrings.deleteCow,
               icon: const Icon(Icons.delete_outline),
             ),
+            PopupMenuButton<String>(
+              tooltip: 'Actions',
+              onSelected: (taskType) => _sendTask(data.cow, taskType),
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'check_weight',
+                  child: ListTile(
+                    leading: Icon(AppIcons.weight),
+                    title: Text('Peser'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'vet',
+                  child: ListTile(
+                    leading: Icon(AppIcons.vet),
+                    title: Text('Vétérinaire'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'sell',
+                  child: ListTile(
+                    leading: Icon(AppIcons.sell),
+                    title: Text('Vendre'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'butcher',
+                  child: ListTile(
+                    leading: Icon(AppIcons.butcher),
+                    title: Text('Boucher'),
+                  ),
+                ),
+              ],
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text('Actions'),
+              ),
+            ),
           ],
         ],
       ),
@@ -283,20 +343,20 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
         onRefresh: _refresh,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+          padding: const EdgeInsets.fromLTRB(
+            AppTheme.pageSpacing,
+            4,
+            AppTheme.pageSpacing,
+            32,
+          ),
           children: [
             if (_loading && data == null)
-              const Padding(
-                padding: EdgeInsets.all(48),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const AppLoadingState(height: 220)
             else if (_error != null && data == null)
-              _messageState(
-                _error!,
-                TextButton(
-                  onPressed: () => _refresh(),
-                  child: const Text(AppStrings.retry),
-                ),
+              AppErrorState(
+                message: _error!,
+                onRetry: () => _refresh(),
+                retryLabel: AppStrings.retry,
               )
             else if (data != null) ...[
               if (_loading) const LinearProgressIndicator(),
@@ -356,33 +416,6 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
                   ),
                   const SizedBox(height: 8),
                 ],
-              const SectionTitle(AppStrings.cowPredictionTitle),
-              AppCard(
-                child: data.predictionUnavailable
-                    ? const Text(AppStrings.predictionUnavailable)
-                    : SelectableText(
-                        const JsonEncoder.withIndent('  ')
-                            .convert(data.prediction),
-                      ),
-              ),
-              const SectionTitle(AppStrings.alertsTitle),
-              OutlinedButton.icon(
-                onPressed: () => _openAlert(data.cow, 'sell'),
-                icon: const Icon(Icons.sell_outlined),
-                label: const Text(AppStrings.alertActionSell),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => _openAlert(data.cow, 'vet'),
-                icon: const Icon(Icons.medical_services_outlined),
-                label: const Text(AppStrings.alertActionVet),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => _openAlert(data.cow, 'butcher'),
-                icon: const Icon(Icons.storefront_outlined),
-                label: const Text(AppStrings.alertActionButcher),
-              ),
               if (_deleting)
                 const Padding(
                   padding: EdgeInsets.only(top: 12),
@@ -426,7 +459,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
                 CircularProgressIndicator(
                   value: probability,
                   strokeWidth: 8,
-                  backgroundColor: AppTheme.line,
+                  backgroundColor: AppTheme.border,
                   color: _classColor(top),
                 ),
                 Text(
@@ -445,13 +478,25 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _classLabel(top),
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: _classColor(top),
-                  ),
+                Row(
+                  children: [
+                    Icon(
+                      _classTrend(top).icon,
+                      color: _classColor(top),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _classLabel(top),
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: _classColor(top),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(advice),
@@ -486,6 +531,12 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
         ]) ...[
           Row(
             children: [
+              Icon(
+                _classTrend(appetite).icon,
+                size: 18,
+                color: _classColor(appetite),
+              ),
+              const SizedBox(width: 6),
               Expanded(child: Text(_confidenceLabel(appetite))),
               Text(
                 AppetiteAnalysis.pct(probabilities[appetite] ?? 0),
@@ -499,7 +550,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
             minHeight: 8,
             borderRadius: BorderRadius.circular(8),
             color: _classColor(appetite),
-            backgroundColor: AppTheme.line,
+            backgroundColor: AppTheme.border,
           ),
           if (appetite != CowAppetiteClass.increasing)
             const SizedBox(height: 12),
@@ -532,18 +583,9 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
             spacing: 14,
             runSpacing: 8,
             children: [
-              _legend(
-                AppStrings.trendIncreasing,
-                _classColor(CowAppetiteClass.increasing),
-              ),
-              _legend(
-                AppStrings.trendStable,
-                _classColor(CowAppetiteClass.stable),
-              ),
-              _legend(
-                AppStrings.trendDecreasing,
-                _classColor(CowAppetiteClass.decreasing),
-              ),
+              _legend(AppetiteTrend.increasing),
+              _legend(AppetiteTrend.decreasing),
+              _legend(AppetiteTrend.stable),
             ],
           ),
         ],
@@ -551,16 +593,12 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
     );
   }
 
-  Widget _legend(String label, Color color) => Row(
+  Widget _legend(AppetiteTrend trend) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 9,
-            height: 9,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
+          Icon(trend.icon, color: trend.color, size: 16),
           const SizedBox(width: 5),
-          Text(label, style: const TextStyle(fontSize: 12)),
+          Text(trend.labelFr, style: const TextStyle(fontSize: 12)),
         ],
       );
 
@@ -625,10 +663,7 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
         _dayTelemetry = telemetry;
         _dayLoading = false;
       });
-    } catch (error, stackTrace) {
-      if (kDebugMode) {
-        debugPrint('CowTelemetry.fromJson failed: $error\n$stackTrace');
-      }
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _dayError = AppStrings.daySearchDataError;
@@ -649,12 +684,29 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            appetite == null
-                ? AppStrings.appetiteDataUnavailable
-                : _classLabel(appetite),
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
+          if (appetite == null)
+            const Text(
+              AppStrings.appetiteDataUnavailable,
+              style: TextStyle(fontWeight: FontWeight.w800),
+            )
+          else
+            Row(
+              children: [
+                Icon(
+                  _classTrend(appetite).icon,
+                  size: 18,
+                  color: _classColor(appetite),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _classLabel(appetite),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: _classColor(appetite),
+                  ),
+                ),
+              ],
+            ),
           if (probabilities != null) ...[
             const SizedBox(height: 12),
             ..._probabilityRows(probabilities),
@@ -762,11 +814,10 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
         CowAppetiteClass.decreasing => AppStrings.appetiteLow,
       };
 
-  Color _classColor(CowAppetiteClass appetite) => switch (appetite) {
-        CowAppetiteClass.increasing => Appetite.high.color,
-        CowAppetiteClass.stable => Appetite.normal.color,
-        CowAppetiteClass.decreasing => Appetite.low.color,
-      };
+  Color _classColor(CowAppetiteClass appetite) => _classTrend(appetite).color;
+
+  AppetiteTrend _classTrend(CowAppetiteClass appetite) =>
+      AppetiteTrendStyle.parse(appetite.name)!;
 
   Map<String, dynamic> _readingMap(RealtimeReading reading) => {
         'cow_id': reading.cowId,
@@ -846,7 +897,21 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
               const Divider(height: 18),
               Row(
                 children: [
-                  Expanded(child: Text(summary.appetite!.label)),
+                  Icon(
+                    summary.appetite!.icon,
+                    color: summary.appetite!.color,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      summary.appetite!.trendLabel,
+                      style: TextStyle(
+                        color: summary.appetite!.color,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                   if (summary.appetitePct != null)
                     Text(
                       summary.appetitePct!.entries
@@ -894,16 +959,6 @@ class _CowDetailScreenState extends State<CowDetailScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
-          ],
-        ),
-      );
-
-  Widget _messageState(String message, Widget action) => Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            action,
           ],
         ),
       );
@@ -959,7 +1014,7 @@ class _TrendPainter extends CustomPainter {
 
     for (var index = 0; index < values.length; index++) {
       final value = values[index];
-      final color = value == null ? AppTheme.line : _trendColor(value);
+      final color = value == null ? AppTheme.border : _trendColor(value);
       if (index == values.length - 1) {
         canvas.drawCircle(
           points[index],

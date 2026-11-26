@@ -7,22 +7,6 @@ import '../models/cow_appetite.dart';
 import '../models/cow_profile.dart';
 import 'widgets.dart';
 
-extension CowAppetiteClassStyle on CowAppetiteClass {
-  String get labelKey => 'appetite_$name';
-
-  Color get color => switch (this) {
-        CowAppetiteClass.increasing => AppTheme.primary,
-        CowAppetiteClass.stable => const Color(0xFF2F80ED),
-        CowAppetiteClass.decreasing => const Color(0xFFE5484D),
-      };
-
-  IconData get icon => switch (this) {
-        CowAppetiteClass.increasing => Icons.trending_up_rounded,
-        CowAppetiteClass.stable => Icons.trending_flat_rounded,
-        CowAppetiteClass.decreasing => Icons.trending_down_rounded,
-      };
-}
-
 class CowTile extends StatelessWidget {
   final CowReference cow;
   final CowAppetiteClass? appetite;
@@ -92,7 +76,7 @@ class _CowAppetiteBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: appetite.color.withValues(alpha: 0.14),
+        color: appetite.lightColor,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [

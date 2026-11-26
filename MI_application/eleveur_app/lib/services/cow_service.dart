@@ -13,8 +13,20 @@ class HomeAppetiteResponse {
   });
 }
 
+abstract interface class CowProfileService {
+  Future<CowProfile> getProfile(String cowId);
+
+  Future<CowProfile> updateProfile({
+    required String cowId,
+    required DateTime birthDate,
+    required double weightKg,
+    required String type,
+    required String breed,
+  });
+}
+
 /// Loads livestock identifiers and daily sensor records from the backend.
-class CowService {
+class CowService implements CowProfileService {
   CowService._();
 
   static final CowService instance = CowService._();
@@ -28,6 +40,7 @@ class CowService {
 
   Future<dynamic> getProfiles() => _api.getProfiles();
 
+  @override
   Future<CowProfile> getProfile(String cowId) async {
     final response = await _api.getProfile(cowId);
     if (response is! Map<String, dynamic>) {
@@ -66,6 +79,7 @@ class CowService {
     return CowProfile.fromJson(response);
   }
 
+  @override
   Future<CowProfile> updateProfile({
     required String cowId,
     required DateTime birthDate,
@@ -93,8 +107,6 @@ class CowService {
   Future<dynamic> getRealtime(String cowId) => _api.getRealtime(cowId);
 
   Future<dynamic> getDispatch(String cowId) => _api.getDispatch(cowId);
-
-  Future<dynamic> getPrediction(String cowId) => _api.getPrediction(cowId);
 
   Future<List<CowReference>> getCows() {
     final stopwatch = Stopwatch()..start();

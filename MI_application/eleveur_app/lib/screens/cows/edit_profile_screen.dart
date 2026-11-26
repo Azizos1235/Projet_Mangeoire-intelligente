@@ -1,19 +1,31 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../../core/l10n.dart';
 import '../../core/theme.dart';
 import '../../models/cow_profile.dart';
+import '../../models/farm_task.dart';
 import '../../services/api_client.dart';
 import '../../services/cow_service.dart';
+import '../../services/task_service.dart';
 import '../../widgets/widgets.dart';
 
 /// Edit the profile of an existing cow. Same design as the add-cow screen.
 /// Pops with `true` when the profile was saved.
 class EditProfileScreen extends StatefulWidget {
   final CowProfile profile;
+  final FarmTask? task;
+  final CowProfileService? cowService;
+  final TaskServiceApi? taskService;
 
-  const EditProfileScreen({super.key, required this.profile});
+  const EditProfileScreen({
+    super.key,
+    required this.profile,
+    this.task,
+    this.cowService,
+    this.taskService,
+  });
 
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
@@ -37,8 +49,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _ageTouched = false;
   bool _weightTouched = false;
   bool _submitting = false;
+  bool _taskProfileSaved = false;
+  double? _taskSavedWeight;
   String? _errorKey;
   String? _errorMessage;
+  final _completionNoteController = TextEditingController();
+  final _weightSectionKey = GlobalKey();
+  final _weightFocusNode = FocusNode();
+
+  CowProfileService get _cowService => widget.cowService ?? CowService.instance;
+  TaskServiceApi get _taskService => widget.taskService ?? TaskService.instance;
+
+  bool get _hasWeightTask => widget.task?.taskType == 'check_weight';
 
   @override
   void initState() {
@@ -53,6 +75,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _inYears ? (months / 12).round().clamp(1, 30) : months.clamp(1, 360);
     _weight =
         ((widget.profile.weightKg / 5).round() * 5).clamp(30, 1000).toDouble();
+    if (_hasWeightTask) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _weightSectionKey.currentContext;
+        if (target == null) return;
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.4,
+          duration: const Duration(milliseconds: 300),
+        ).then((_) {
+          if (mounted) _weightFocusNode.requestFocus();
+        });
+      });
+    }
   }
 
   String get _type => _typeByBreed[_breed]!;
@@ -85,6 +120,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<void> _submit() async {
     if (_submitting) return;
+    if (_taskProfileSaved) {
+      await _retryTaskCompletion();
+      return;
+    }
     if (_breed == null) {
       setState(() {
         _errorKey = 'select_breed';
@@ -92,22 +131,49 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       });
       return;
     }
+    // Keep the original values for anything the user did not touch.
+    final birthDate =
+        _ageTouched ? _birthDateFromAge() : widget.profile.birthDate;
+    final weight = _weightTouched ? _weight : widget.profile.weightKg;
+    if (_hasWeightTask && (!weight.isFinite || weight < 30 || weight > 1000)) {
+      setState(() {
+        _errorKey = 'task_weight_range_invalid';
+        _errorMessage = null;
+      });
+      return;
+    }
+    if (_hasWeightTask && (weight - widget.profile.weightKg).abs() < 0.0001) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(context.tr('task_weight_unchanged_title')),
+          content: Text(context.tr('task_weight_unchanged_message')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(context.tr('cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(context.tr('task_confirm')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
     setState(() {
       _errorKey = null;
       _errorMessage = null;
       _submitting = true;
     });
 
-    // Keep the original values for anything the user did not touch.
-    final birthDate =
-        _ageTouched ? _birthDateFromAge() : widget.profile.birthDate;
-    final weight = _weightTouched ? _weight : widget.profile.weightKg;
     // The backend only accepts capitalized breed names (e.g. "Holstein").
     final selected = _breed!;
     final breed = selected[0].toUpperCase() + selected.substring(1);
 
     try {
-      await CowService.instance.updateProfile(
+      await _cowService.updateProfile(
         cowId: widget.profile.cowId,
         birthDate: birthDate,
         weightKg: weight,
@@ -115,7 +181,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         breed: breed,
       );
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      if (_hasWeightTask) {
+        _taskProfileSaved = true;
+        _taskSavedWeight = weight;
+        await _completeWeightTask();
+      } else {
+        Navigator.of(context).pop(true);
+      }
     } on ApiException catch (error) {
       if (mounted) {
         setState(() {
@@ -130,9 +202,61 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           _errorMessage = null;
         });
       }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _errorKey = 'api_error_generic';
+          _errorMessage = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  Future<void> _completeWeightTask() async {
+    final task = widget.task;
+    final weight = _taskSavedWeight;
+    if (task == null || weight == null) return;
+    try {
+      await _taskService.markDone(
+        task.id,
+        completedWeightKg: weight,
+        previousWeightKg: widget.profile.weightKg,
+        completionNote: _completionNoteController.text,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(context.tr('task_weight_saved_pending')),
+            action: SnackBarAction(
+              label: context.tr('retry'),
+              onPressed: () => unawaited(_retryTaskCompletion()),
+            ),
+          ),
+        );
+    }
+  }
+
+  Future<void> _retryTaskCompletion() async {
+    if (!_taskProfileSaved || _submitting) return;
+    setState(() => _submitting = true);
+    try {
+      await _completeWeightTask();
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _completionNoteController.dispose();
+    _weightFocusNode.dispose();
+    super.dispose();
   }
 
   @override
@@ -165,6 +289,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
         children: [
+          if (widget.task != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.primarySoft,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.tr('task_weight_banner'),
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.task!.title,
+                    style: const TextStyle(
+                      color: AppTheme.textDark,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (widget.task!.plan.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(widget.task!.plan),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
           // Preview + cow ID
           Center(
             child: Column(children: [
@@ -279,39 +439,64 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
           // Weight
           _title(context.tr('weight')),
-          _Card(
-            child: Column(children: [
-              Text(
-                  '${(_weightTouched ? _weight : widget.profile.weightKg).round()} ${context.tr('kg')}',
-                  style: const TextStyle(
-                      fontSize: 40,
-                      fontWeight: FontWeight.w900,
-                      color: AppTheme.primary)),
-              Slider(
-                value: _weight,
-                min: 30,
-                max: 1000,
-                divisions: 194, // 5 kg steps
-                activeColor: AppTheme.primary,
-                onChanged: _submitting
-                    ? null
-                    : (v) => setState(() {
-                          _weight = v;
-                          _weightTouched = true;
-                        }),
-              ),
-              const Directionality(
-                textDirection: TextDirection.ltr,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('30', style: TextStyle(color: AppTheme.textGrey)),
-                    Text('1000', style: TextStyle(color: AppTheme.textGrey)),
-                  ],
+          Focus(
+            key: _weightSectionKey,
+            focusNode: _weightFocusNode,
+            child: _Card(
+              child: Column(children: [
+                if (_hasWeightTask) ...[
+                  Text(
+                    '${context.tr('task_previous_weight')}: '
+                    '${widget.profile.weightKg.toStringAsFixed(1)} '
+                    '${context.tr('kg')}',
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Text(
+                    '${(_weightTouched ? _weight : widget.profile.weightKg).round()} ${context.tr('kg')}',
+                    style: const TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.primary)),
+                Slider(
+                  key: const ValueKey('profile-weight-slider'),
+                  value: _weight,
+                  min: 30,
+                  max: 1000,
+                  divisions: 194, // 5 kg steps
+                  activeColor: AppTheme.primary,
+                  onChanged: _submitting
+                      ? null
+                      : (v) => setState(() {
+                            _weight = v;
+                            _weightTouched = true;
+                          }),
                 ),
-              ),
-            ]),
+                const Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('30', style: TextStyle(color: AppTheme.textGrey)),
+                      Text('1000', style: TextStyle(color: AppTheme.textGrey)),
+                    ],
+                  ),
+                ),
+              ]),
+            ),
           ),
+          if (_hasWeightTask) ...[
+            const SizedBox(height: 18),
+            TextFormField(
+              controller: _completionNoteController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: InputDecoration(
+                labelText: context.tr('task_note_optional'),
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
 
           if (_errorKey != null) ...[
             const SizedBox(height: 20),

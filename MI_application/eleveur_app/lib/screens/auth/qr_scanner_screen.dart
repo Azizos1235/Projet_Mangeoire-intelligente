@@ -42,10 +42,22 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         return;
       }
 
+      final loginToken = _loginToken(value);
+      if (loginToken != null) {
+        unawaited(
+          Navigator.pushReplacementNamed<void, void>(
+            context,
+            AppRoutes.nameEntry,
+            arguments: {'token': loginToken},
+          ),
+        );
+        return;
+      }
+
       final code = _invitationCode(value);
       if (code == null) {
         setState(() {
-          _message = 'This is not a valid invitation QR';
+          _message = context.tr('qr_unknown');
           _invalidInvitation = true;
         });
         return;
@@ -79,12 +91,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     } on FormatException {
       if (!mounted) return;
       setState(() => _message = context.tr('api_error_generic'));
-    } on PlatformException catch (error) {
+    } on PlatformException {
       if (!mounted) return;
-      setState(() {
-        _message =
-            error.message?.isNotEmpty == true ? error.message : error.code;
-      });
+      setState(() => _message = context.tr('qr_scanner_error'));
     } finally {
       if (mounted) setState(() => _scanning = false);
     }
@@ -106,6 +115,17 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     }
     final code = uri.queryParameters['code'];
     return code == null || code.trim().isEmpty ? null : code.trim();
+  }
+
+  String? _loginToken(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        uri.scheme.toLowerCase() != 'cowfarm' ||
+        uri.host.toLowerCase() != 'login') {
+      return null;
+    }
+    final token = uri.queryParameters['token'];
+    return token == null || token.trim().isEmpty ? null : token.trim();
   }
 
   @override

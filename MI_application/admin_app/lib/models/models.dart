@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/strings.dart';
+import '../core/theme.dart';
 
 enum CowType { dairy, beef, dual }
 
@@ -28,23 +29,28 @@ extension AppetiteX on Appetite {
         Appetite.high => AppStrings.appetiteHigh,
       };
 
-  Color get color => switch (this) {
-        Appetite.low => const Color(0xFFE65100),
-        Appetite.normal => const Color(0xFF2E7D32),
-        Appetite.high => const Color(0xFF1E88E5),
+  AppetiteTrend get trend => switch (this) {
+        Appetite.low => AppetiteTrend.decreasing,
+        Appetite.normal => AppetiteTrend.stable,
+        Appetite.high => AppetiteTrend.increasing,
       };
 
-  static Appetite? parse(String? value) => switch (value) {
-        'low' || 'decreasing' || 'decreased' || 'decrease' => Appetite.low,
-        'normal' || 'stable' => Appetite.normal,
-        'high' || 'increasing' || 'increased' || 'increase' => Appetite.high,
-        _ => null,
+  Color get color => trend.color;
+  Color get lightColor => trend.lightColor;
+  IconData get icon => trend.icon;
+
+  static Appetite? parse(String? value) =>
+      switch (AppetiteTrendStyle.parse(value)) {
+        AppetiteTrend.decreasing => Appetite.low,
+        AppetiteTrend.stable => Appetite.normal,
+        AppetiteTrend.increasing => Appetite.high,
+        null => null,
       };
 
   String get trendLabel => switch (this) {
-        Appetite.low => AppStrings.trendDecreasing,
-        Appetite.normal => AppStrings.trendStable,
-        Appetite.high => AppStrings.trendIncreasing,
+        Appetite.low => AppetiteTrend.decreasing.labelFr,
+        Appetite.normal => AppetiteTrend.stable.labelFr,
+        Appetite.high => AppetiteTrend.increasing.labelFr,
       };
 }
 
@@ -65,6 +71,7 @@ class Cow {
     required this.ageMonths,
     required this.adminId,
     required this.nfcUid,
+    this.eleveurId,
   });
 
   final String id;
@@ -76,6 +83,7 @@ class Cow {
   final DateTime birthDate;
   final int ageMonths;
   final String? nfcUid;
+  final String? eleveurId;
 
   factory Cow.fromJson(Map<String, dynamic> json) {
     final weight = json['weight_kg'];
@@ -95,6 +103,7 @@ class Cow {
       birthDate: DateTime.parse(_requiredString(json, 'birth_date')),
       ageMonths: ageMonths,
       nfcUid: _optionalString(json, 'nfc_uid'),
+      eleveurId: _optionalString(json, 'eleveur_id'),
     );
   }
 }

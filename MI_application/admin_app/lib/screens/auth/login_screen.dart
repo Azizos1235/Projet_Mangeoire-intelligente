@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/app_icons.dart';
 import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../services/api_client.dart';
@@ -112,11 +113,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     height: 56,
                     decoration: BoxDecoration(
                       color: AppTheme.primary,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                     child: const Icon(
-                      Icons.agriculture_rounded,
-                      color: Colors.white,
+                      AppIcons.cow,
+                      color: AppTheme.surface,
                       size: 30,
                     ),
                   ),
@@ -213,7 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     height: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: Colors.white,
+                                      color: AppTheme.onPrimary,
                                     ),
                                   )
                                 : const Text(AppStrings.signIn),

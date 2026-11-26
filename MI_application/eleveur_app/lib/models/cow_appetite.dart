@@ -1,6 +1,18 @@
+import 'package:flutter/material.dart';
+
+import '../core/theme.dart';
 import 'cow_profile.dart';
 
 enum CowAppetiteClass { increasing, stable, decreasing }
+
+extension CowAppetiteClassStyle on CowAppetiteClass {
+  String get labelKey => 'appetite_$name';
+  String get key => labelKey;
+  AppetiteTrend get trend => AppetiteTrendStyle.parse(name)!;
+  Color get color => trend.color;
+  Color get lightColor => trend.lightColor;
+  IconData get icon => trend.icon;
+}
 
 enum CowAppetiteFilter { increasing, stable, decreasing, noData }
 
@@ -43,11 +55,11 @@ Map<String, CowAppetiteClass> appetiteClassesByIdentifier(
   final result = <String, CowAppetiteClass>{};
   for (final entry in appetiteByIdentifier.entries) {
     final identifier = normalizeCowIdentifier(entry.key);
-    final appetite = switch (entry.value?.trim().toLowerCase()) {
-      'increasing' => CowAppetiteClass.increasing,
-      'stable' => CowAppetiteClass.stable,
-      'decreasing' => CowAppetiteClass.decreasing,
-      _ => null,
+    final appetite = switch (AppetiteTrendStyle.parse(entry.value)) {
+      AppetiteTrend.increasing => CowAppetiteClass.increasing,
+      AppetiteTrend.stable => CowAppetiteClass.stable,
+      AppetiteTrend.decreasing => CowAppetiteClass.decreasing,
+      null => null,
     };
     if (identifier.isNotEmpty && appetite != null) {
       result[identifier] = appetite;

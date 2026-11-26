@@ -1,12 +1,25 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'core/app_route_observer.dart';
 import 'core/app_routes.dart';
 import 'core/l10n.dart';
+import 'core/navigation.dart';
 import 'core/theme.dart';
+import 'native/canaux.dart';
 import 'services/api_client.dart';
 
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await CanauxNatifs.initializeNotificationActions();
+    } on PlatformException catch (error) {
+      debugPrint('Unable to initialize native notification actions: $error');
+    } on MissingPluginException catch (error) {
+      debugPrint('Native notification channel is unavailable: $error');
+    }
+  }
   ApiClient.instance.navigatorKey = navigatorKey;
   runApp(const EleveurApp());
 }
@@ -27,6 +40,7 @@ class EleveurApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           navigatorKey: navigatorKey,
+          navigatorObservers: [appRouteObserver],
           routes: AppRoutes.staticRoutes,
           onGenerateRoute: AppRoutes.onGenerateRoute,
           // Arabe = écriture de droite à gauche

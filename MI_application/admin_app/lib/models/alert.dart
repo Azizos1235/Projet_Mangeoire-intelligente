@@ -15,6 +15,7 @@ extension AlertSeverityX on AlertSeverity {
 class Alert {
   const Alert({
     required this.id,
+    required this.source,
     required this.message,
     required this.severity,
     required this.cowId,
@@ -26,9 +27,15 @@ class Alert {
     required this.status,
     required this.createdAt,
     required this.readAt,
+    required this.taskId,
+    required this.handled,
+    required this.completionNote,
+    required this.completedWeightKg,
+    this.previousWeightKg,
   });
 
   final String id;
+  final String source;
   final String message;
   final AlertSeverity severity;
   final String? cowId;
@@ -40,8 +47,15 @@ class Alert {
   final String status;
   final DateTime createdAt;
   final DateTime? readAt;
+  final String? taskId;
+  final bool handled;
+  final String? completionNote;
+  final double? completedWeightKg;
+  final double? previousWeightKg;
 
   bool get isRead => status == 'read';
+  bool get isAppetite => type == 'appetite_high' || type == 'appetite_low';
+  bool get isTaskCompleted => type == 'task_completed';
 
   factory Alert.fromJson(Map<String, dynamic> json) {
     final severityName = json['severity'];
@@ -63,6 +77,7 @@ class Alert {
 
     return Alert(
       id: _requiredString(json, 'id'),
+      source: _optionalString(json, 'source') ?? 'system',
       message: _requiredString(json, 'message'),
       severity: severity,
       cowId: _optionalString(json, 'cow_id'),
@@ -74,6 +89,11 @@ class Alert {
       status: status,
       createdAt: DateTime.parse(_requiredString(json, 'created_at')),
       readAt: _optionalDateTime(json, 'read_at'),
+      taskId: _optionalString(json, 'task_id'),
+      handled: _optionalBool(json, 'handled') ?? false,
+      completionNote: _optionalString(json, 'completion_note'),
+      completedWeightKg: _optionalNumber(json, 'completed_weight_kg'),
+      previousWeightKg: _optionalNumber(json, 'previous_weight_kg'),
     );
   }
 }
@@ -114,5 +134,18 @@ DateTime? _optionalDateTime(Map<String, dynamic> json, String key) {
   final value = json[key];
   if (value == null) return null;
   if (value is String && value.isNotEmpty) return DateTime.parse(value);
+  throw FormatException('Invalid "$key" in alert response.');
+}
+
+bool? _optionalBool(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null || value is bool) return value as bool?;
+  throw FormatException('Invalid "$key" in alert response.');
+}
+
+double? _optionalNumber(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
+  if (value is num && value.isFinite) return value.toDouble();
   throw FormatException('Invalid "$key" in alert response.');
 }

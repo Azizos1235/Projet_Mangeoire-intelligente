@@ -3,12 +3,16 @@
 Matches what simulate_history.py expects:
   - _id is the RFID tag (same ids as COW_IDS there)
   - birth_date is set (simulate_history only fills it when it is missing)
-Existing profiles are never overwritten: if a tag is already in the collection
-the document is left untouched.
+  - admin_id is the owner account (ObjectId): the API only shows a cow to the
+    admin whose id matches this field
+Existing profiles keep all their data. For profiles that already exist,
+admin_id is only added when it is missing (never overwritten), unless you
+pass --force-owner.
 
 Usage:
-    python create_cow_profiles.py --dry-run     # print only, no database access
-    python create_cow_profiles.py               # write (needs MONGO_URI)
+    python create_cow_profiles.py --dry-run       # print only, no database access
+    python create_cow_profiles.py                 # write (needs MONGO_URI)
+    python create_cow_profiles.py --force-owner   # also overwrite a different admin_id
 """
 import argparse
 import os
@@ -18,6 +22,9 @@ import numpy as np
 
 DB_NAME = os.environ.get("MONGO_DB", "farm")
 COLLECTION = "cow_profiles"
+
+# Owner account: can be overridden with the ADMIN_ID environment variable
+ADMIN_ID = os.environ.get("ADMIN_ID", "6af8c379510d8b0a4fbfe603")
 
 TAGS = [
     "3C43FA39",  # Nouveau tag #1
@@ -42,7 +49,7 @@ BREEDS = {
 }
 
 
-def build_profiles() -> list[dict]:
+def build_profiles(admin_id) -> list[dict]:
     rng = np.random.default_rng(SEED)
 
     names = list(BREEDS)
@@ -69,6 +76,7 @@ def build_profiles() -> list[dict]:
         profiles.append({
             "_id": TAGS[i],                                   # RFID tag
             "cow_id": f"COW{i + 1:03d}",                      # COW001 ... COW007
+            "admin_id": admin_id,                             # owner account (ObjectId)
             "age_months": round(float(age[i]), 1),
             "weight_kg": round(float(weight[i]), 1),
             "type": str(cow_type[i]),
@@ -82,23 +90,46 @@ def build_profiles() -> list[dict]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="print documents, do not write")
+    ap.add_argument("--force-owner", action="store_true",
+                    help="overwrite admin_id even on profiles that already have another owner")
     args = ap.parse_args()
 
-    profiles = build_profiles()
+    if len(ADMIN_ID) != 24 or any(c not in "0123456789abcdefABCDEF" for c in ADMIN_ID):
+        raise SystemExit(f"ADMIN_ID '{ADMIN_ID}' is not a valid ObjectId (24 hex characters)")
 
     if args.dry_run:
-        for p in profiles:
+        for p in build_profiles(ADMIN_ID):               # shown as text, no bson needed
             print(p)
-        print(f"{len(profiles)} documents would be written to {DB_NAME}.{COLLECTION}")
+        print(f"{N_COWS} documents would be written to {DB_NAME}.{COLLECTION} "
+              f"with admin_id {ADMIN_ID}")
         return
 
-    from pymongo import MongoClient, UpdateOne      # imported here so --dry-run needs no pymongo
+    from bson import ObjectId                           # imported here so --dry-run needs no pymongo
+    from pymongo import MongoClient, UpdateOne
+    admin_oid = ObjectId(ADMIN_ID)
+    profiles = build_profiles(admin_oid)
+
     col = MongoClient(os.environ.get("MONGO_URI", "mongodb://localhost:27017"))[DB_NAME][COLLECTION]
 
     ops = [UpdateOne({"_id": p["_id"]}, {"$setOnInsert": p}, upsert=True) for p in profiles]
     res = col.bulk_write(ops, ordered=False)
     print(f"{COLLECTION}: {res.upserted_count} inserted, "
           f"{len(ops) - res.upserted_count} already existed (left untouched)")
+
+    # Existing profiles: attach the owner (only where it is missing, unless --force-owner)
+    if args.force_owner:
+        flt = {"_id": {"$in": TAGS}}
+    else:
+        flt = {"_id": {"$in": TAGS},
+               "$or": [{"admin_id": {"$exists": False}}, {"admin_id": None}]}
+    upd = col.update_many(flt, {"$set": {"admin_id": admin_oid}})
+    print(f"admin_id {ADMIN_ID} set on {upd.modified_count} existing profile(s)")
+
+    # Warn about profiles whose owner is a string instead of an ObjectId (never matches)
+    bad = col.count_documents({"_id": {"$in": TAGS}, "admin_id": {"$type": "string"}})
+    if bad:
+        print(f"WARNING: {bad} profile(s) have admin_id stored as a string; "
+              "use --force-owner to replace it with an ObjectId")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../services/api_client.dart';
 import '../../services/eleveur_service.dart';
-import '../invites/invite_screen.dart';
+import 'eleveur_qr_screen.dart';
 import 'eleveur_detail_screen.dart';
+import '../tasks/tasks_screen.dart';
+import '../../widgets/async_state.dart';
+import '../../widgets/widgets.dart';
 
 class EleveursScreen extends StatefulWidget {
   const EleveursScreen({super.key});
@@ -53,19 +57,33 @@ class _EleveursScreenState extends State<EleveursScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Éleveurs')),
+        appBar: AppBar(
+          title: const Text('Éleveurs'),
+          actions: [
+            IconButton(
+              tooltip: AppStrings.tasksTitle,
+              onPressed: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const TasksScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.task_alt_rounded),
+            ),
+          ],
+        ),
         floatingActionButton: FloatingActionButton.extended(
           backgroundColor: AppTheme.primary,
-          foregroundColor: Colors.white,
+          foregroundColor: AppTheme.onPrimary,
           icon: const Icon(Icons.qr_code_2_rounded),
           label: const Text(
-            'Inviter un éleveur',
+            'QR éleveur',
             style: TextStyle(fontWeight: FontWeight.w700),
           ),
           onPressed: () => Navigator.push<void>(
             context,
             MaterialPageRoute<void>(
-              builder: (_) => const InviteScreen(),
+              builder: (_) => const EleveurQrScreen(),
             ),
           ),
         ),
@@ -75,41 +93,28 @@ class _EleveursScreenState extends State<EleveursScreen> {
               ? ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: const [
-                    SizedBox(height: 180),
-                    Center(child: CircularProgressIndicator()),
+                    AppLoadingState(),
                   ],
                 )
               : ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 100),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppTheme.pageSpacing,
+                    4,
+                    AppTheme.pageSpacing,
+                    100,
+                  ),
                   children: [
                     if (_errorMessage != null)
-                      Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          children: [
-                            Text(
-                              _errorMessage!,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: AppTheme.warn),
-                            ),
-                            const SizedBox(height: 12),
-                            OutlinedButton(
-                              onPressed: _loadEleveurs,
-                              child: const Text('Retry'),
-                            ),
-                          ],
-                        ),
+                      AppErrorState(
+                        message: _errorMessage!,
+                        onRetry: _loadEleveurs,
+                        retryLabel: 'Retry',
                       )
                     else if (_eleveurs?.isEmpty ?? false)
-                      const Padding(
-                        padding: EdgeInsets.all(36),
-                        child: Center(
-                          child: Text(
-                            'Aucun éleveur.',
-                            style: TextStyle(color: AppTheme.textGrey),
-                          ),
-                        ),
+                      const AppEmptyState(
+                        message: 'Aucun éleveur.',
+                        icon: Icons.groups_rounded,
                       )
                     else
                       for (final eleveur in _eleveurs ?? [])
@@ -133,61 +138,37 @@ class _EleveurRow extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.line),
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: AppTheme.primarySoft,
-                  child: Text(
-                    eleveur.name.isEmpty ? '?' : eleveur.name[0].toUpperCase(),
+  Widget build(BuildContext context) => AppCard(
+        onTap: onTap,
+        child: Row(
+          children: [
+            PersonAvatar(eleveur.name, size: 54),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    eleveur.name,
                     style: const TextStyle(
+                      fontSize: 17,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.primary,
+                      color: AppTheme.textDark,
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        eleveur.name,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.textDark,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'Membre depuis ${eleveur.joinedDate}',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          color: AppTheme.textGrey,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 3),
+                  Text(
+                    'Membre depuis ${eleveur.joinedDate}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppTheme.textGrey,
+                    ),
                   ),
-                ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppTheme.textGrey,
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            chevron(context),
+          ],
         ),
       );
 }

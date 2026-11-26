@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/eleveur_user.dart';
+import '../native/canaux.dart';
 
 class Session {
   Session._();
@@ -12,6 +14,7 @@ class Session {
 
   final ValueNotifier<EleveurUser?> currentUser =
       ValueNotifier<EleveurUser?>(null);
+  final ValueNotifier<int> tokenRevision = ValueNotifier(0);
   int _authGeneration = 0;
 
   int get authGeneration => _authGeneration;
@@ -21,14 +24,13 @@ class Session {
     currentUser.value = user;
   }
 
-  Future<void> saveToken(String token) {
+  Future<void> saveToken(String token) async {
     final value = token.trim();
     if (value.isEmpty) {
       throw ArgumentError('JWT must not be empty.');
     }
-    return _storage
-        .write(key: _tokenKey, value: value)
-        .timeout(_storageTimeout);
+    await _storage.write(key: _tokenKey, value: value).timeout(_storageTimeout);
+    tokenRevision.value++;
   }
 
   Future<String?> readToken() =>
@@ -40,7 +42,26 @@ class Session {
     try {
       await _storage.delete(key: _tokenKey).timeout(_storageTimeout);
     } finally {
+      await _clearNativeSession();
       currentUser.value = null;
+    }
+  }
+
+  Future<void> _clearNativeSession() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await CanauxNatifs.clearSession();
+    } on PlatformException catch (error) {
+      debugPrint('Unable to clear the native notification session: $error');
+    } on MissingPluginException catch (error) {
+      debugPrint('Native notification channel is unavailable: $error');
+    }
+    try {
+      await CanauxNatifs.annulerPlanification();
+    } on PlatformException catch (error) {
+      debugPrint('Unable to cancel native notification work: $error');
+    } on MissingPluginException catch (error) {
+      debugPrint('Native notification channel is unavailable: $error');
     }
   }
 }

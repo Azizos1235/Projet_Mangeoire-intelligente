@@ -187,6 +187,7 @@ class ApiClient {
     String path,
     Map<String, dynamic> body, {
     int expectedStatusCode = 200,
+    bool handleUnauthorized = true,
   }) async {
     _debug('POST $path headers await start');
     final headers = await _headers(json: true);
@@ -202,29 +203,12 @@ class ApiClient {
     );
     _debug('POST $path send await complete');
     _debug('POST $path parse await start');
-    final result =
-        await _parse(response, expectedStatusCode: expectedStatusCode);
-    _debug('POST $path parse await complete');
-    return result;
-  }
-
-  Future<dynamic> patch(String path, {Map<String, dynamic>? body}) async {
-    _debug('PATCH $path headers await start');
-    final headers = await _headers(json: true);
-    _debug('PATCH $path headers await complete');
-    _debug('PATCH $path send await start');
-    final response = await _send(
-      () => http.patch(
-        _uri(path),
-        headers: headers,
-        body: body == null ? null : jsonEncode(body),
-      ),
-      label: 'PATCH $path',
+    final result = await _parse(
+      response,
+      expectedStatusCode: expectedStatusCode,
+      handleUnauthorized: handleUnauthorized,
     );
-    _debug('PATCH $path send await complete');
-    _debug('PATCH $path parse await start');
-    final result = await _parse(response);
-    _debug('PATCH $path parse await complete');
+    _debug('POST $path parse await complete');
     return result;
   }
 
@@ -247,6 +231,7 @@ class ApiClient {
   Future<dynamic> _parse(
     http.Response response, {
     int? expectedStatusCode,
+    bool handleUnauthorized = true,
   }) async {
     _debug(
       'response parse start status=${response.statusCode} '
@@ -264,7 +249,10 @@ class ApiClient {
     if (expectedStatusCode != null &&
         response.statusCode != expectedStatusCode) {
       _debug('status handling start status=${response.statusCode}');
-      await _handleStatus(response.statusCode);
+      await _handleStatus(
+        response.statusCode,
+        handleUnauthorized: handleUnauthorized,
+      );
       _debug('status handling complete status=${response.statusCode}');
       throw _exceptionFor(
         response.statusCode,
@@ -290,7 +278,10 @@ class ApiClient {
       }
     }
     _debug('status handling start status=${response.statusCode}');
-    await _handleStatus(response.statusCode);
+    await _handleStatus(
+      response.statusCode,
+      handleUnauthorized: handleUnauthorized,
+    );
     _debug('status handling complete status=${response.statusCode}');
     throw _exceptionFor(
       response.statusCode,
@@ -298,8 +289,11 @@ class ApiClient {
     );
   }
 
-  Future<void> _handleStatus(int statusCode) async {
-    if (statusCode == 401) {
+  Future<void> _handleStatus(
+    int statusCode, {
+    bool handleUnauthorized = true,
+  }) async {
+    if (statusCode == 401 && handleUnauthorized) {
       _debug('401 token deletion start');
       await Session.instance.deleteToken();
       _debug('401 token deletion complete');
@@ -353,9 +347,8 @@ class ApiClient {
     return _limitErrorMessage(trimmed);
   }
 
-  String _limitErrorMessage(String message) => message.length <= 500
-      ? message
-      : '${message.substring(0, 500)}...';
+  String _limitErrorMessage(String message) =>
+      message.length <= 500 ? message : '${message.substring(0, 500)}...';
 
   ApiException _exceptionFor(
     int statusCode, {
@@ -363,8 +356,8 @@ class ApiClient {
   }) =>
       switch (statusCode) {
         401 => UnauthorizedApiException(responseMessage: responseMessage),
-        402 => SubscriptionExpiredApiException(
-            responseMessage: responseMessage),
+        402 =>
+          SubscriptionExpiredApiException(responseMessage: responseMessage),
         403 => ForbiddenApiException(responseMessage: responseMessage),
         404 => NotFoundApiException(responseMessage: responseMessage),
         409 => ConflictApiException(responseMessage: responseMessage),
@@ -423,29 +416,6 @@ class ApiClient {
 
   /// Raw response; its model is defined once the API sample is available.
   Future<dynamic> getDispatch(String cowId) => get('/dispatch/${_id(cowId)}');
-
-  /// Prediction is optional until the backend exposes it.
-  Future<dynamic> getPrediction(String cowId) async {
-    try {
-      _debug('prediction GET await start');
-      final result = await get('/predict/${_id(cowId)}');
-      _debug('prediction GET await complete');
-      return result;
-    } on ApiException catch (error) {
-      if (error.statusCode == 501 || error.statusCode == 502) {
-        throw PredictionUnavailableApiException(error.statusCode!);
-      }
-      rethrow;
-    }
-  }
-
-  /// GET /alerts.
-  Future<dynamic> getAlerts({String? status, int limit = 50}) =>
-      get('/alerts', query: {'status': status, 'limit': limit});
-
-  /// PATCH /alerts/{alert_id}/read.
-  Future<dynamic> markAlertRead(String alertId) =>
-      patch('/alerts/${_id(alertId)}/read');
 }
 
 String _tokenHint(String token) {
@@ -531,11 +501,6 @@ class ValidationApiException extends ApiException {
 class TooManyRequestsApiException extends ApiException {
   const TooManyRequestsApiException({super.responseMessage})
       : super(429, 'api_error_429');
-}
-
-class PredictionUnavailableApiException extends ApiException {
-  const PredictionUnavailableApiException(int statusCode)
-      : super(statusCode, 'prediction_unavailable');
 }
 
 class NetworkApiException extends ApiException {

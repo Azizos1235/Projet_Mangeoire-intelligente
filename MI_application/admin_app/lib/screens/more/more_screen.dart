@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/services.dart';
 
 import '../../core/strings.dart';
 import '../../core/theme.dart';
+import '../../native/notification_settings.dart';
 import '../../services/api_client.dart';
 import '../../services/session.dart';
 import '../../widgets/widgets.dart';
@@ -134,12 +137,17 @@ class _MoreScreenState extends State<MoreScreen> {
     final daysLeft = subscription?['days_left'];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Plus')),
+      appBar: AppBar(title: const Text(AppStrings.navMore)),
       body: RefreshIndicator(
         onRefresh: _loadSubscription,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+          padding: const EdgeInsets.fromLTRB(
+            AppTheme.pageSpacing,
+            4,
+            AppTheme.pageSpacing,
+            28,
+          ),
           children: [
             const SectionTitle('Compte'),
             DataSheet([
@@ -154,6 +162,10 @@ class _MoreScreenState extends State<MoreScreen> {
                 email is String ? email : '—',
               ),
             ]),
+            if (defaultTargetPlatform == TargetPlatform.android) ...[
+              const SectionTitle(AppStrings.notificationsTitle),
+              const NativeNotificationSettings(),
+            ],
             const SectionTitle('Abonnement'),
             if (_isLoading && subscription == null)
               const Padding(
@@ -224,7 +236,7 @@ class _MoreScreenState extends State<MoreScreen> {
               const SizedBox(height: 12),
               Text(
                 _renewalSuccess!,
-                style: const TextStyle(color: AppTheme.accent),
+                style: const TextStyle(color: AppTheme.primary),
               ),
             ],
             const SizedBox(height: 14),
@@ -236,7 +248,7 @@ class _MoreScreenState extends State<MoreScreen> {
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: AppTheme.onPrimary,
                       ),
                     )
                   : const Text(AppStrings.requestRenewal),

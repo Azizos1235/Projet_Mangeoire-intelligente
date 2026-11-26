@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/app_icons.dart';
 import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../services/api_client.dart';
@@ -92,7 +93,7 @@ class _RequestScreenState extends State<RequestScreen> {
                 const Icon(
                   Icons.check_circle_rounded,
                   size: 72,
-                  color: AppTheme.accent,
+                  color: AppTheme.primary,
                 ),
                 const SizedBox(height: 20),
                 const Text(
@@ -123,18 +124,23 @@ class _RequestScreenState extends State<RequestScreen> {
                 child: Form(
                   key: _formKey,
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppTheme.pageSpacing,
+                      24,
+                      AppTheme.pageSpacing,
+                      28,
+                    ),
                     children: [
                       Container(
                         width: 56,
                         height: 56,
                         decoration: BoxDecoration(
                           color: AppTheme.primary,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(18),
                         ),
                         child: const Icon(
-                          Icons.agriculture_rounded,
-                          color: Colors.white,
+                          AppIcons.cow,
+                          color: AppTheme.surface,
                           size: 30,
                         ),
                       ),
@@ -225,7 +231,7 @@ class _RequestScreenState extends State<RequestScreen> {
                                       height: 18,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: Colors.white,
+                                        color: AppTheme.onPrimary,
                                       ),
                                     )
                                   : const Icon(Icons.send_rounded, size: 20),
